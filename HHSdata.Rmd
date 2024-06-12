@@ -190,7 +190,7 @@ ggsave("graphs/HHS_covid_coverage_state.png", g02, width=15, height=12)
 
 ```
 
-```{r linear regression (Spetember 2020)}
+```{r linear regression (September 2020)}
 hhs_covid <- read.csv("covid_data/COVID-19_Reported_Patient_Impact_and_Hospital_Capacity_by_State_Timeseries__RAW__20240603.csv") 
 
 hhs_covid %<>% dplyr::select(state, date,    
@@ -450,14 +450,14 @@ sumcovid.ra=aggregate(covid_rollav,by=list(state, state_id),sum,na.rm=T)
 all.seas.ra=data.frame(sumcovid.ra, matrix(c((phase1.ra*52.17)/(2*3.14159265), err.ph1, amp1,rel.amp1,rel.amp.emp,err.amp1,(phase2.ra*52.17)/(2*3.14159265), err.ph2, amp2, rel.amp2, err.amp2), nstates, 11))
 names(all.seas.ra) = c('state','state_id','Sum.Covid','phase.ann', 'err.ph.ann','amp.ann','rel.amp.ann', 'emp.amp.ann','err.amp.ann','phase.sem', 'err.ph.sem', 'amp.sem', 'rel.amp.sem', 'err.amp.sem')
 
-#all.seas.ra$ratio=all.seas.ra$amp.sem.ra/(all.seas.ra$amp.ann.ra+all.seas.ra$amp.sem.ra) ## the ratio of semi-annual to (annual+semi-annual) amplitudes is a good indication of the strength of a 6-mo cycle
+all.seas.ra$ratio=all.seas.ra$amp.sem/(all.seas.ra$amp.ann+all.seas.ra$amp.sem) ## the ratio of semi-annual to (annual+semi-annual) amplitudes is a good indication of the strength of a 6-mo cycle
 
 all.ra=merge(StateDesc, all.seas.ra,by.x="state_id",by.y="state_id") %>% select(-c('flag', 'Surveillance'))## merge with geo data
 ```
 
 ```{r seasonality plots (September 2020)}
-jpeg("graphs/March20_lat.jpeg", width= 3.25,height= 3.25, units= "in",res= 500,pointsize = 4) 
-par(mfrow=c(1,3), mar= c(5, 5, 5, 5))
+jpeg("graphs/Sept20.jpeg", width= 3.25,height= 3.25, units= "in",res= 500,pointsize = 4) 
+par(mfrow=c(3,3), mar= c(5, 5, 5, 5))
 ## panel 1: amplitude of annual cycle as a function of latitude
 plot(all$rel.amp.ann,all$Latitude,cex=(all$Sum.Covid/100000),lwd=1,col="black",xlab='Relative amplitude',ylab='Latitude',cex.lab=1.4,cex.axis=1.2)
 title('Annual amplitude',cex.main=1.5)
@@ -481,10 +481,7 @@ abline(a=-reg$coefficients[1]/reg$coefficients[2], b=1/reg$coefficients[2],col="
 reg2=lm(all$phase.ann~all$Latitude,weight=all$Sum.Covid)
 abline(a=-reg2$coefficients[1]/reg2$coefficients[2], b=1/reg2$coefficients[2],col="purple",lty=1,lwd=1)
 title('Peak timing',cex.main=1.5)
-dev.off()
 
-jpeg("graphs/March20_long.jpeg", width= 3.25,height= 3.25, units= "in",res= 500,pointsize = 4) 
-par(mfrow=c(1,3), mar= c(5, 5, 5, 5))
 ## panel 4: amplitude of annual cycle as a function of longitude
 plot(all$rel.amp.ann,all$Longitude,cex=(all$Sum.Covid/100000),lwd=1,col="black",xlab='Relative amplitude',ylab='Longitude',cex.lab=1.4,cex.axis=1.2)
 reg=lm(all$rel.amp.ann~all$Longitude)
@@ -509,12 +506,10 @@ abline(a=-reg$coefficients[1]/reg$coefficients[2], b=1/reg$coefficients[2],col="
 reg2=lm(all$phase.ann~all$Longitude,weight=all$Sum.Covid)
 abline(a=-reg2$coefficients[1]/reg2$coefficients[2], b=1/reg2$coefficients[2],col="purple",lty=1,lwd=1)
 title('Peak timing',cex.main=1.5)
-dev.off()
 
-jpeg("graphs/March20_pop.jpeg", width= 3.25,height= 3.25, units= "in",res= 500,pointsize = 4) 
-par(mfrow=c(1,3), mar= c(5, 5, 5, 5))
+
 ## panel 7: amplitude of annual cycle as a function of population
-plot(all$rel.amp.ann,all$population,cex=(all$Sum.Covid/100000),lwd=1,col="black",xlab='Relative amplitude',ylab='Population Size',cex.lab=1.4,cex.axis=1.2)
+plot(all$rel.amp.ann,log(all$population),cex=(all$Sum.Covid/100000),lwd=1,col="black",xlab='Relative amplitude',ylab='Population Size',cex.lab=1.4,cex.axis=1.2)
 reg=lm(all$rel.amp.ann~all$population)
 reg2=lm(all$rel.amp.ann~all$population,weight=all$Sum.Covid)
 abline(a=-reg$coefficients[1]/reg$coefficients[2], b=1/reg$coefficients[2],col="purple",lty=2,lwd=1)
@@ -522,7 +517,7 @@ abline(a=-reg2$coefficients[1]/reg2$coefficients[2], b=1/reg2$coefficients[2],co
 title('Annual amplitude',cex.main=1.5)
 
 ## panel 8: : importance of 6-mo cycle as a function of population
-plot(all$ratio,all$population, cex=(all$Sum.Covid/100000),lwd=1,col="black",xlab='Ratio semi-annual component',ylab='Population Size',cex.lab=1.4,cex.axis=1.2)
+plot(all$ratio,log(all$population), cex=(all$Sum.Covid/100000),lwd=1,col="black",xlab='Ratio semi-annual component',ylab='Population Size',cex.lab=1.4,cex.axis=1.2)
 reg=lm(all$ratio~all$population)
 abline(a=-reg$coefficients[1]/reg$coefficients[2], b=1/reg$coefficients[2],col="purple",lty=2,lwd=1)
 reg2=lm(all$ratio~all$population,weight=all$Sum.Covid)
@@ -531,7 +526,7 @@ abline(a=-reg2$coefficients[1]/reg2$coefficients[2], b=1/reg2$coefficients[2],co
 title('Importance of \n semi-annual cycle',cex.main=1.5)
 
 ## panel 9: peak timing as a function of population
-plot(all$phase.ann,all$population, cex=(all$Sum.Covid/100000),lwd=1,col="black",xlab='Phase (wks;0=Sept-5)',ylab='Population Size',cex.lab=1.4,cex.axis=1.2)
+plot(all$phase.ann,log(all$population), cex=(all$Sum.Covid/100000),lwd=1,col="black",xlab='Phase (wks;0=Sept-5)',ylab='Population Size',cex.lab=1.4,cex.axis=1.2)
 reg=lm(all$phase.ann~all$population)
 abline(a=-reg$coefficients[1]/reg$coefficients[2], b=1/reg$coefficients[2],col="purple",lty=2,lwd=1)
 reg2=lm(all$phase.ann~all$population,weight=all$Sum.Covid)
@@ -726,14 +721,14 @@ sumcovid.ra=aggregate(covid_rollav,by=list(state, state_id),sum,na.rm=T)
 all.seas2.ra=data.frame(sumcovid.ra, matrix(c((phase1.ra*52.17)/(2*3.14159265), err.ph1, amp1,rel.amp1,rel.amp.emp,err.amp1,(phase2.ra*52.17)/(2*3.14159265), err.ph2, amp2, rel.amp2, err.amp2), nstates, 11))
 names(all.seas2.ra) = c('state','state_id','Sum.Covid','phase.ann', 'err.ph.ann','amp.ann','rel.amp.ann', 'emp.amp.ann','err.amp.ann','phase.sem', 'err.ph.sem', 'amp.sem', 'rel.amp.sem', 'err.amp.sem')
 
-#all2.seas.ra$ratio=all.seas.ra$amp.sem.ra/(all.seas.ra$amp.ann.ra+all.seas.ra$amp.sem.ra) ## the ratio of semi-annual to (annual+semi-annual) amplitudes is a good indication of the strength of a 6-mo cycle
+all.seas2.ra$ratio=all.seas2.ra$amp.sem/(all.seas2.ra$amp.ann+all.seas2.ra$amp.sem) ## the ratio of semi-annual to (annual+semi-annual) amplitudes is a good indication of the strength of a 6-mo cycle
 
 all2.ra=merge(StateDesc, all.seas2.ra,by.x="state_id",by.y="state_id") %>% select(-c('flag', 'Surveillance'))## merge with geo data
 ```
 
 ```{r seasonality plots (April 2022)}
-jpeg("graphs/April22_lat.jpeg", width= 3.25,height= 3.25, units= "in",res= 500,pointsize = 4) 
-par(mfrow=c(1,3), mar= c(5, 5, 5, 5))
+jpeg("graphs/April22.jpeg", width= 3.25,height= 3.25, units= "in",res= 500,pointsize = 4) 
+par(mfrow=c(3,3), mar= c(5, 5, 5, 5))
 ## panel 1: amplitude of annual cycle as a function of latitude
 plot(all2$rel.amp.ann,all2$Latitude,cex=(all2$Sum.Covid/100000),lwd=1,col="black",xlab='Relative amplitude',ylab='Latitude',cex.lab=1.4,cex.axis=1.2)
 title('Annual amplitude',cex.main=1.5)
@@ -757,10 +752,7 @@ abline(a=-reg$coefficients[1]/reg$coefficients[2], b=1/reg$coefficients[2],col="
 reg2=lm(all2$phase.ann~all2$Latitude,weight=all$Sum.Covid)
 abline(a=-reg2$coefficients[1]/reg2$coefficients[2], b=1/reg2$coefficients[2],col="purple",lty=1,lwd=1)
 title('Peak timing',cex.main=1.5)
-dev.off()
 
-jpeg("graphs/April22_long.jpeg", width= 3.25,height= 3.25, units= "in",res= 500,pointsize = 4) 
-par(mfrow=c(1,3), mar= c(5, 5, 5, 5))
 ## panel 4: amplitude of annual cycle as a function of longitude
 plot(all2$rel.amp.ann,all2$Longitude,cex=(all2$Sum.Covid/100000),lwd=1,col="black",xlab='Relative amplitude',ylab='Longitude',cex.lab=1.4,cex.axis=1.2)
 reg=lm(all2$rel.amp.ann~all$Longitude)
@@ -785,12 +777,9 @@ abline(a=-reg$coefficients[1]/reg$coefficients[2], b=1/reg$coefficients[2],col="
 reg2=lm(all2$phase.ann~all2$Longitude,weight=all2$Sum.Covid)
 abline(a=-reg2$coefficients[1]/reg2$coefficients[2], b=1/reg2$coefficients[2],col="purple",lty=1,lwd=1)
 title('Peak timing',cex.main=1.5)
-dev.off()
 
-jpeg("graphs/April22_pop.jpeg", width= 3.25,height= 3.25, units= "in",res= 500,pointsize = 4) 
-par(mfrow=c(1,3), mar= c(5, 5, 5, 5))
 ## panel 7: amplitude of annual cycle as a function of population
-plot(all2$rel.amp.ann,all2$population,cex=(all2$Sum.Covid/100000),lwd=1,col="black",xlab='Relative amplitude',ylab='Population Size',cex.lab=1.4,cex.axis=1.2)
+plot(all2$rel.amp.ann,log(all2$population),cex=(all2$Sum.Covid/100000),lwd=1,col="black",xlab='Relative amplitude',ylab='Population Size',cex.lab=1.4,cex.axis=1.2)
 reg=lm(all2$rel.amp.ann~all2$population)
 reg2=lm(all2$rel.amp.ann~all2$population,weight=all2$Sum.Covid)
 abline(a=-reg$coefficients[1]/reg$coefficients[2], b=1/reg$coefficients[2],col="purple",lty=2,lwd=1)
@@ -799,7 +788,7 @@ text(1.2,20,"R2=0.54-0.60; P<0.0001",cex=1.1)
 title('Annual amplitude',cex.main=1.5)
 
 ## panel 8: : importance of 6-mo cycle as a function of population
-plot(all2$ratio,all2$population, cex=(all2$Sum.Covid/100000),lwd=1,col="black",xlab='Ratio semi-annual component',ylab='Population Size',cex.lab=1.4,cex.axis=1.2)
+plot(all2$ratio,log(all2$population), cex=(all2$Sum.Covid/100000),lwd=1,col="black",xlab='Ratio semi-annual component',ylab='Population Size',cex.lab=1.4,cex.axis=1.2)
 reg=lm(all2$ratio~all2$population)
 abline(a=-reg$coefficients[1]/reg$coefficients[2], b=1/reg$coefficients[2],col="purple",lty=2,lwd=1)
 reg2=lm(all2$ratio~all2$population,weight=all2$Sum.Covid)
@@ -808,7 +797,7 @@ abline(a=-reg2$coefficients[1]/reg2$coefficients[2], b=1/reg2$coefficients[2],co
 title('Importance of \n semi-annual cycle',cex.main=1.5)
 
 ## panel 9: peak timing as a function of population
-plot(all2$phase.ann,all2$population, cex=(all2$Sum.Covid/100000),lwd=1,col="black",xlab='Phase (wks;0=Apr-1)',ylab='Population Size',cex.lab=1.4,cex.axis=1.2)
+plot(all2$phase.ann,log(all2$population), cex=(all2$Sum.Covid/100000),lwd=1,col="black",xlab='Phase (wks;0=Apr-1)',ylab='Population Size',cex.lab=1.4,cex.axis=1.2)
 reg=lm(all2$phase.ann~all2$population)
 abline(a=-reg$coefficients[1]/reg$coefficients[2], b=1/reg$coefficients[2],col="purple",lty=2,lwd=1)
 reg2=lm(all2$phase.ann~all2$population,weight=all2$Sum.Covid)
