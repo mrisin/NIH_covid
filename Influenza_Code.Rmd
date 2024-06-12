@@ -1,0 +1,421 @@
+---
+title: "Influenza Code"
+author: "Maya Risin"
+date: "2024-06-06"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+#time series plots
+library(tidyr)
+library(dplyr)
+library(ggplot2); theme_set(theme_bw(base_family = "Times", base_size = 14))
+library(lubridate)
+library(data.table)
+library(purrr)
+library(MMWRweek)
+library(cdcfluview)
+
+#linear regression
+library(TTR)
+```
+
+```{r time series plots}
+hhs=read.csv("COVID-19_Reported_Patient_Impact_and_Hospital_Capacity_by_State_Timeseries__RAW__20240603.csv") %>%
+  dplyr::select(state, date,    
+                previous_day_admission_influenza_confirmed,
+                previous_day_admission_influenza_confirmed_coverage,
+                previous_day_deaths_covid_and_influenza,
+                previous_day_deaths_covid_and_influenza_coverage,
+                previous_day_deaths_influenza,
+                previous_day_deaths_influenza_coverage,
+                icu_patients_confirmed_influenza,
+                icu_patients_confirmed_influenza_coverage,
+                total_patients_hospitalized_confirmed_influenza,
+                total_patients_hospitalized_confirmed_influenza_and_covid,
+                total_patients_hospitalized_confirmed_influenza_and_covid_coverage,
+                total_patients_hospitalized_confirmed_influenza_coverage,
+                inpatient_beds_used_covid,
+                inpatient_beds_used_covid_coverage,
+                percent_of_inpatients_with_covid,
+                adult_icu_bed_utilization,
+                adult_icu_bed_utilization_coverage) %>%
+    mutate(date=as.Date(as.character(date), "%Y/%m/%d")-1, ## data is for previous day flu admission
+           week=epiweek(date),
+           year=epiyear(date),
+           datew=MMWRweek2Date(year, week, 7)) %>%
+    arrange(state, date) %>%
+    group_by(state, datew) %>%  ##summarize daily data into weekly counts
+  summarise(across(c(previous_day_admission_influenza_confirmed:previous_day_deaths_influenza_coverage),
+                   ~sum(.x, na.rm = TRUE)),
+            across(c(icu_patients_confirmed_influenza:adult_icu_bed_utilization_coverage),
+                   ~mean(.x, na.rm = TRUE))) %>%
+    ungroup()
+
+  
+hhs_natl=hhs %>%
+    group_by(datew) %>%
+  summarise(across(c(previous_day_admission_influenza_confirmed:adult_icu_bed_utilization_coverage),
+                   ~sum(.x, na.rm = TRUE))) %>%
+  ungroup() %>% mutate(state="US")
+
+
+pop=read.csv("State Population till 2021.csv") %>%
+  left_join(read.csv("state abbreviations.csv"), by="region") %>%
+  filter(year==2021) %>% dplyr::select(region,abbreviation, population)
+
+
+hhs= hhs %>% 
+  bind_rows(hhs_natl) %>% filter(state !="AS") %>%
+  mutate(state=factor(state, levels=c("US", state.abb))) %>%
+  left_join(pop, by=c("state"="abbreviation")) %>%
+  mutate(flu_hosp_rate= previous_day_admission_influenza_confirmed/population*100000,
+         flu_death_rate= previous_day_deaths_influenza/population*100000)
+
+
+colors <- c("Hospitalization per 100,000" = "blue", 
+            "No hospitals reporting flu"="green", 
+            "Deaths per 100,000" = "red")
+
+hhs_natl2=  hhs %>% filter(state=="US")
+r=max(hhs_natl2$flu_hosp_rate,na.rm=T)/max(hhs_natl2$previous_day_admission_influenza_confirmed_coverage) # ratio of max flu admissions to max no reporting hospitals for plot
+
+g0 <- ggplot(subset(hhs, state=="US" & datew<max(datew)-7)) +  #excluding most recent week as typically incomplete
+  geom_line(aes(datew, flu_hosp_rate, color="Hospitalization per 100,000"), lwd=0.8) +
+#  geom_line(aes(datew, flu_death_rate*10, color="Deaths per 1,000,000"), lwd=0.8 ) +
+  geom_line(aes(datew, previous_day_admission_influenza_confirmed_coverage*r, 
+                color="No hospitals reporting flu"), lwd=0.8 ) +
+  
+    # geom_line(aes(datew, total_patients_hospitalized_confirmed_influenza_7_day_coverage), lwd=0.8, color="blue" ) +
+  geom_vline(xintercept = c(as.Date("2021-01-01"),as.Date("2022-01-01")), lty=2)+
+  geom_vline(xintercept = c(as.Date("2022-02-02")), lty=2, color="purple")+
+  labs(x = "Date",
+       y = "Weekly influenza admission rates",
+       color = "Legend")+
+  xlim(c(as.Date("2020-09-01"),as.Date("2022-08-01"))) +
+  scale_y_continuous( sec.axis = sec_axis(~ ./r, name = "No reporting hospitals"))+
+  scale_color_manual(values = colors) +
+  theme(legend.position.inside = c(0.4, 0.5)) +ggtitle("HHS dataset")
+
+g0
+
+ggsave("HospitalizationsAnalysis/HHS_flu_national.png", g0, width=12, height=9)
+
+
+colors <- c("Hospitalization" = "blue", "Deaths" = "red")
+
+g00 <- ggplot(subset(hhs, state!="AS")) + 
+  geom_line(aes(datew, flu_hosp_rate, color="Hospitalization"), lwd=0.8) +
+  geom_line(aes(datew, flu_death_rate, color="Deaths"), lwd=0.8 ) +
+  # geom_line(aes(datew, total_patients_hospitalized_confirmed_influenza_7_day_coverage), lwd=0.8, color="blue" ) +
+  geom_vline(xintercept = c(as.Date("2021-01-01"),as.Date("2022-01-01")), lty=2)+
+  labs(x = "Date",
+       y = "Weekly hospitalizations or deaths per 100,000",
+       color = "Legend")+
+  xlim(c(as.Date("2021-09-01"),as.Date("2022-08-01"))) +
+  scale_color_manual(values = colors) +
+  facet_wrap(~state, scale="free", ncol=6)+
+    theme(legend.position = c(0.8, 0.05)) +ggtitle("HHS dataset, flu 2021-22 season")
+
+g00
+
+ggsave("HospitalizationsAnalysis/HHS_flu_state.png", g00, width=15, height=12)
+
+
+g00 <- ggplot(subset(hhs, state!="AS")) + 
+  geom_line(aes(datew, flu_death_rate, color="Deaths"), lwd=0.8 ) +
+  # geom_line(aes(datew, total_patients_hospitalized_confirmed_influenza_7_day_coverage), lwd=0.8, color="blue" ) +
+  geom_vline(xintercept = c(as.Date("2021-01-01"),as.Date("2022-01-01")), lty=2)+
+  labs(x = "Date",
+       y = "Weekly hospitalizations",
+       color = "Legend")+
+  xlim(c(as.Date("2021-09-01"),as.Date("2022-08-01"))) +
+  scale_color_manual(values = colors) +
+  facet_wrap(~state, scale="free", ncol=6)+
+  theme(legend.position = c(0.8, 0.05)) +ggtitle("HHS dataset")
+
+g00
+
+ggsave("HospitalizationsAnalysis/HHS_flu_deaths_state.png", g00, width=15, height=12)
+
+
+
+colors <- c("Hospitals reporting" = "red")
+g00 <- ggplot(subset(hhs, state!="AS")) + 
+  geom_line(aes(datew, previous_day_admission_influenza_confirmed_coverage, color="Hospitals reporting"), lwd=0.8 ) +
+  # geom_line(aes(datew, total_patients_hospitalized_confirmed_influenza_7_day_coverage), lwd=0.8, color="blue" ) +
+  geom_vline(xintercept = c(as.Date("2021-01-01"),as.Date("2022-01-01")), lty=2)+
+  labs(x = "Date",
+       y = "Weekly no. hospitals reporting flu admissions",
+       color = "Legend")+
+  xlim(c(as.Date("2021-09-01"),as.Date("2022-08-01"))) +
+  scale_color_manual(values = colors) +
+  facet_wrap(~state, scale="free", ncol=6)+
+  theme(legend.position = c(0.8, 0.05)) +ggtitle("HHS dataset -- flu reporting")
+
+g00
+
+ggsave("HospitalizationsAnalysis/HHS_flu_coverage_state.png", g00, width=15, height=12)
+```
+
+```{r}
+
+source("flu_data/ImageScale.r") #code for heatmaps
+source("flu_data/plclust_in_colour.r") # Code to plot dendograms in color
+
+data <- read.table("flu_data/TSVirusActivityChinaSample.csv", sep=',', header=T) #disease data
+
+ProvinceDesc <- read.table("flu_data/ProvincesW.csv", sep=',', header=T) # geographic info
+
+head(data)
+
+attach(data)
+
+nwks <- table(province_id)[1]
+nprov <- dim(table(province_id)) 
+
+datee <- seq(from=2003.02,by=1/52.17,length.out=nwks) ##running index for time
+
+matrixdata = matrix(NA, nrow=nwks, ncol=nprov) 
+# matrix to store the wkly data; time as rows;locations as columns
+matrixseas = matrix(NA, nrow=53, ncol=nprov) 
+ # matrix to store average % of disease in each week (=average seasonal signature);
+
+prov_row_counts <- data %>%
+  group_by(province_id) %>%
+  summarize(row_count = n())
+
+for (i in 1:nprov){
+subdata = data[which(province_id == i),]
+subdata$tomodel=sqrt(subdata$flu/subdata$sumflu) #standardization by annual no. of samples positives for flu
+subdata$tomodel[1:139]=NA #excludes 2003-2004, weak surveillance
+   matrixdata[,i]=   subdata$tomodel
+   matrixseas[,i]= aggregate(subdata$tomodel[c(140:343,383:470)], list(subdata$weekyear[c(140:343,383:470)]), median)$x
+}
+
+ProvinceDesc$flag=ifelse(ProvinceDesc$Surveillance=='Year-round', '*', '') ## flags a subset of locations with yr-round data
+idx=sort(ProvinceDesc$latitude,index.return=T)$ix
+```
+
+```{r heat map 1}
+#heatmap of weekly time series
+# geographic labels on the rights + flag for year round surveillance
+# color bar to the right
+layout(matrix(c(1,2), nrow=1, ncol=2), widths=c(4,1), heights=c(4)) 
+layout.show(2) 
+# this shows the type of window split you are getting for the plot
+
+par(mar=c(4,6.5,1,1))
+image(x=datee[140:470], z=matrixdata[140:470,idx],  col=heat.colors(10)[10:1], breaks=seq(0,0.5,0.05),yaxt="n",xlab="Time")
+axis(2, at=seq(0,1,,dim(matrixdata)[2]), labels=paste(ProvinceDesc$Province[idx],ProvinceDesc$flag[idx]),las=1,cex.axis=0.8)
+abline(v=datee[c(344,382)],lty=2)
+par(mar=c(5,0,1,5))
+image.scale(matrixdata, col=heat.colors(10)[10:1], breaks=seq(0,0.5,0.05), horiz=FALSE, yaxt="n", xaxt="n", xlab="", ylab="")
+axis(4)
+mtext("Influenza specimens", side=4, line=2)
+box()
+```
+```{r heat map 2}
+# Second heatmap provides an 'average' seasonal signature
+layout(matrix(c(1,2), nrow=1, ncol=2), widths=c(4,1), heights=c(4))
+par(mar=c(4,6.5,1,1))
+image(x=seq(1,53), z=matrixseas[c(15:53,1:14),idx],  col=heat.colors(10)[10:1], breaks=seq(0,0.4,0.04),yaxt="n",xlab="Week of year (week 0 = Oct-15)")
+axis(2, at=seq(0,1,,dim(matrixseas)[2]), paste(ProvinceDesc$Province[idx],ProvinceDesc$flag[idx]),las=1,cex.axis=0.8)
+par(mar=c(5,0,1,5))
+image.scale(matrixseas[c(15:53,1:14),idx], col=heat.colors(10)[10:1], breaks=seq(0,0.4,0.04), horiz=FALSE, yaxt="n", xaxt="n",xlab="", ylab="")
+axis(4)
+mtext("Seasonal distribution influenza", side=4, line=2)
+box()
+```
+
+
+```{r linear regression}
+# Terms for time trends
+t_1<-datee
+t_2<-t_1^2
+
+#Harmonic terms
+cos1<-cos(2*t_1*3.14159265/1)
+sin1<-sin(2*t_1*3.14159265/1)
+cos2<-cos(2*t_1*3.14159265/0.5)
+sin2<-sin(2*t_1*3.14159265/0.5)
+
+### Creating vectors to store seasonal estimates for 1-yr periodicities
+phase1 = rep(NA, length.out=nprov)
+err.ph1 = rep(NA, length.out=nprov)
+amp1 = rep(NA, length.out=nprov)
+rel.amp1 = rep(NA, length.out=nprov)
+rel.amp.emp=rep(NA, length.out=nprov)
+err.amp1 = rep(NA, length.out=nprov)
+
+# Creating vectors to store seasonal estimates for 6-mo periodicities
+phase2 = rep(NA, length.out=nprov)
+err.ph2 = rep(NA, length.out=nprov)
+amp2 = rep(NA, length.out=nprov)
+rel.amp2 = rep(NA, length.out=nprov)
+err.amp2 = rep(NA, length.out=nprov)
+years = rep(0, length.out=nprov)
+
+provinces.list=names(table(data$Province))
+layout(matrix(1:6,3,2))
+par(mar=c(2,2,2,2))
+
+for (i in 1:nprov){
+data.tomodel= matrixdata[,i] 
+data.tomodel.ex= data.tomodel 
+
+##fits seasonal model with linear time trends and harmonics for 1-y and 6-mo cycles
+    model.flu = glm(data.tomodel.ex ~ t_1 + cos1 + sin1 + cos2 + sin2,  family= gaussian(link =
+ "identity"),
+na.action=na.exclude)
+fitted = predict.glm(model.flu, subdata,type='response') ##prediction of model baseline, deals with NAs
+    c1 = model.flu$coefficients[2]
+    s1 = model.flu$coefficients[3]
+    c2 = model.flu$coefficients[4]
+    s2 = model.flu$coefficients[5]
+    x = summary(model.flu)
+    c1.err = x$coefficients[2,2]
+    s1.err = x$coefficients[3,2]
+    c2.err = x$coefficients[4,2]
+    s2.err = x$coefficients[5,2]
+phase1[i] = atan2(s1,c1) ## estimate of peak time for annual component
+err.ph1[i] = abs( sqrt( (s1^2*c1.err^2 + c1^2*s1.err^2)/(c1^2 + s1^2) ) ) ##error 
+amp1[i] = sqrt(s1^2 + c1^2) ## estimate of amplitude for annual component
+rel.amp1[i] = amp1[i] / mean(fitted) ## better to express amplitude as relative to the mean
+err.amp1[i] = ((s1*s1.err)/sqrt(s1^2 + c1^2))^2 + ((c1*c1.err)/sqrt(s1^2 + c1^2))^2 ##error
+
+## same for semi-annual component
+    phase2[i] = atan2(s2,c2)
+    err.ph2[i] = abs( sqrt( (s2^2*c2.err^2 + c2^2*s2.err^2)/(c2^2 + s2^2) ) )
+    amp2[i] = sqrt(s2^2 + c2^2)
+    rel.amp2[i] =  amp2[i] / mean(subdata$tomodel,na.rm=T)
+    err.amp2[i] = ((s2*s2.err)/sqrt(s2^2 + c2^2))^2 + ((c2*c2.err)/sqrt(s2^2 + c2^2))^2
+##plots observed data and model
+plot(datee[140:470], data.tomodel[140:470], type='l')
+title(provinces.list[i])
+lines(datee[344:382], data.tomodel[344:382], col="green") ##plotting pandemic period in different color
+lines(datee[140:470], as.vector(fitted[140:470]), col='red') #predicted model
+}
+
+sumflu=aggregate(flu,by=list(ID_SAS, Province, province_id),sum,na.rm=T)
+sumtest=aggregate(no_test,by=list(ID_SAS, Province, province_id),sum,na.rm=T)
+## note that we transform the phase estimate from radians to year (=time) below using 1 year = 2*Pi (=full cycle of a 1 year harmonics)
+all.seas=data.frame( sumflu,sumtest$x, matrix( c((phase1*52.17)/(2*3.14159265), err.ph1, amp1,
+rel.amp1,rel.amp.emp,
+err.amp1,(phase2*52.17)/(2*3.14159265), err.ph2, amp2, rel.amp2, err.amp2), nprov, 11) )
+names(all.seas) = c('ID_SAS','Province','Province_id','Sum.Flu', 'Sum.Test','phase.ann', 'err.ph.ann','amp.ann','rel.amp.ann','emp.amp.ann','err.amp.ann','phase.sem', 'err.ph.sem', 'amp.sem', 'rel.amp.sem','err.amp.sem')
+all.seas$ratio=all.seas$amp.sem/(all.seas$amp.ann+all.seas$amp.sem) ## the ratio of semi-annual to (annual +semi-annual) aplitudes is a good indication of the strength of a 6-mo cycle
+all=merge(ProvinceDesc,all.seas,by.x="province_id",by.y="Province_id") ## merge with geo data 
+
+idxtrop=which(all$Climate=='SubTropic'|all$Climate=='Tropic')
+idxtemp=which(all$Climate!='SubTropic'&all$Climate!='Tropic')
+wilcox.test(all$rel.amp.ann[idxtrop],all$rel.amp.ann[idxtemp]) ## tests differences in amplitude by climate
+
+ median(all$phase.ann[idxtemp])
+ 
+par(mfrow=c(1,3))
+## panel 1: amplitude of annual cycle as a function of latitude
+sel=which(all$Climate=='Cold')
+
+plot(all$rel.amp.ann[sel],all$latitude[sel],cex=(all$Sum.Flu/1000),lwd=2,col="black",xlim=c(0,2),ylim=c(15,50),xlab='Relative amplitude',ylab='Latitude',cex.lab=1.4,cex.axis=1.2)
+
+
+title('Annual amplitude',cex.main=1.5)
+
+reg=lm(all$rel.amp.ann~all$latitude)
+
+reg2=lm(all$rel.amp.ann~all$latitude,weight=all$Sum.Flu)
+
+abline(a=-reg$coefficients[1]/reg$coefficients[2],b=1/reg$coefficients[2],col="purple",lty=2,lwd=1)
+
+abline(a=-reg2$coefficients[1]/reg2$coefficients[2],b=1/reg2$coefficients[2],col="purple",lty=1,lwd=1)
+
+points(all$rel.amp.ann[sel],all$latitude[sel],cex=(all$Sum.Flu/1000), col="black",lwd=2)
+
+sel=which(all$Climate=='Mid-Temperate')
+
+points(all$rel.amp.ann[sel],all$latitude[sel],cex=(all$Sum.Flu/1000),col="blue",lwd=2)
+
+sel=which(all$Climate=='Warm-temperate')
+
+points(all$rel.amp.ann[sel],all$latitude[sel],cex=(all$Sum.Flu/1000),col="green",lwd=2)
+
+sel=which(all$Climate=='SubTropic')
+
+points(all$rel.amp.ann[sel],all$latitude[sel],cex=(all$Sum.Flu/1000),col="orange",lwd=2)
+
+sel=which(all$Climate=='Tropic')
+
+points(all$rel.amp.ann[sel],all$latitude[sel],cex=(all$Sum.Flu/1000),col="red",lwd=2)
+
+text(1.2,20,"R2=0.54-0.60; P<0.0001",cex=1.1)
+
+## panel 2: peak timing as a function of latitude
+sel=which(all$Climate=='Cold')
+
+plot(all$phase.ann[sel],all$latitude[sel],cex=(all$Sum.Flu/1000),lwd=2,col="black",xlim=c(-30,30),ylim=c(15,50),xlab='Phase (wks; 0=Jan-1)',ylab='Latitude',cex.lab=1.4,cex.axis=1.2)
+
+title('Peak timing',cex.main=1.5)
+
+reg=lm(all$phase.ann~all$latitude)
+
+abline(a=-reg$coefficients[1]/reg$coefficients[2],b=1/reg$coefficients[2],col="purple",lty=2,lwd=1)
+
+reg2=lm(all$phase.ann~all$latitude,weight=all$Sum.Flu)
+
+abline(a=-reg2$coefficients[1]/reg2$coefficients[2],b=1/reg2$coefficients[2],col="purple",lty=1,lwd=1)
+
+points(all$phase.ann[sel],all$latitude[sel],cex=(all$Sum.Flu/1000), col="black",lwd=2)
+
+sel=which(all$Climate=='Mid-Temperate')
+
+points(all$phase.ann[sel],all$latitude[sel],cex=(all$Sum.Flu/1000),col="blue",lwd=2)
+
+sel=which(all$Climate=='Warm-temperate')
+
+points(all$phase.ann[sel],all$latitude[sel],cex=(all$Sum.Flu/1000),col="green",lwd=2)
+
+sel=which(all$Climate=='SubTropic')
+
+points(all$phase.ann[sel],all$latitude[sel],cex=(all$Sum.Flu/1000),col="orange",lwd=2)
+
+sel=which(all$Climate=='Tropic')
+
+points(all$phase.ann[sel],all$latitude[sel],cex=(all$Sum.Flu/1000),col="red",lwd=2)
+
+text(-10,20,"R2=0.33-0.34; P<0.001",cex=1.1)
+
+## panel 3: : importance of 6-mo cycle as a function of latitude
+sel=which(all$Climate=='Cold')
+
+plot(all$ratio[sel],all$latitude[sel],cex=(all$Sum.Flu/1000),lwd=2,col="black",xlim=c(0,1),ylim=c(15,50),xlab='Ratio semi-annual component',ylab='Latitude',cex.lab=1.4,cex.axis=1.2)
+
+reg=lm(all$ratio~all$latitude)
+
+abline(a=-reg$coefficients[1]/reg$coefficients[2],b=1/reg$coefficients[2],col="purple",lty=2,lwd=1)
+
+reg2=lm(all$ratio~all$latitude,weight=all$Sum.Flu)
+
+abline(a=-reg2$coefficients[1]/reg2$coefficients[2],b=1/reg2$coefficients[2],col="purple",lty=1,lwd=1)
+
+sel=which(all$Climate=='Mid-Temperate')
+
+points(all$ratio[sel],all$latitude[sel],cex=(all$Sum.Flu/1000),col="blue",lwd=2)
+
+sel=which(all$Climate=='Warm-temperate')
+
+points(all$ratio[sel],all$latitude[sel],cex=(all$Sum.Flu/1000),col="green",lwd=2)
+
+sel=which(all$Climate=='SubTropic')
+
+points(all$ratio[sel],all$latitude[sel],cex=(all$Sum.Flu/1000),col="orange",lwd=2)
+
+sel=which(all$Climate=='Tropic')
+
+points(all$ratio[sel],all$latitude[sel],cex=(all$Sum.Flu/1000),col="red",lwd=2)
+
+text(0.75,40,"R2=0.12-0.17; P<0.04",cex=1.1)
+
+title('Importance semi-annual cycle',cex.main=1.5)
+```
+

@@ -1,0 +1,818 @@
+---
+title: "NIH_HHS"
+author: "Maya Risin"
+date: "2024-06-03"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(tidyr)
+library(dplyr)
+library(ggplot2); theme_set(theme_bw(base_family = "Times", base_size = 14))
+library(magrittr)
+library(lubridate)
+library(data.table)
+library(purrr)
+library(MMWRweek)
+library(cdcfluview)
+library(scales)
+library(zoo)
+```
+
+```{r timeseries_plots}
+#load data set 
+
+hhs_covid <- read.csv("covid_data/COVID-19_Reported_Patient_Impact_and_Hospital_Capacity_by_State_Timeseries__RAW__20240603.csv") 
+
+hhs_covid %<>% dplyr::select(state, date,    
+                previous_day_admission_adult_covid_confirmed,
+                previous_day_admission_pediatric_covid_confirmed,
+                previous_day_admission_adult_covid_confirmed_coverage,
+                previous_day_admission_pediatric_covid_confirmed_coverage,
+                deaths_covid,
+                deaths_covid_coverage,
+                staffed_icu_adult_patients_confirmed_covid,
+                staffed_icu_pediatric_patients_confirmed_covid,
+                staffed_icu_adult_patients_confirmed_covid_coverage,
+                staffed_icu_pediatric_patients_confirmed_covid_coverage,
+                total_adult_patients_hospitalized_confirmed_covid,
+                total_pediatric_patients_hospitalized_confirmed_covid,
+                total_adult_patients_hospitalized_confirmed_covid_coverage,
+                total_pediatric_patients_hospitalized_confirmed_covid_coverage,
+                inpatient_beds_used_covid,
+                inpatient_beds_used_covid_coverage,
+                percent_of_inpatients_with_covid,
+                adult_icu_bed_utilization,
+                staffed_pediatric_icu_bed_occupancy,
+                adult_icu_bed_utilization_coverage,
+                staffed_pediatric_icu_bed_occupancy_coverage
+                ) %>%
+    mutate(previous_day_admission_covid_confirmed = rowSums(hhs_covid[, c("previous_day_admission_adult_covid_confirmed", "previous_day_admission_pediatric_covid_confirmed")])) %>%
+    mutate(previous_day_admission_covid_confirmed_coverage = rowSums(hhs_covid[, c("previous_day_admission_adult_covid_confirmed_coverage", "previous_day_admission_pediatric_covid_confirmed_coverage")])) %>%
+    mutate(staffed_icu_patients_confirmed_covid = rowSums(hhs_covid[, c("staffed_icu_adult_patients_confirmed_covid", "staffed_icu_pediatric_patients_confirmed_covid")])) %>%
+    mutate(staffed_icu_patients_confirmed_covid_coverage = rowSums(hhs_covid[, c("staffed_icu_adult_patients_confirmed_covid_coverage", "staffed_icu_pediatric_patients_confirmed_covid_coverage")])) %>%
+    mutate(total_patients_hospitalized_confirmed_covid = rowSums(hhs_covid[, c("total_adult_patients_hospitalized_confirmed_covid", "total_pediatric_patients_hospitalized_confirmed_covid")])) %>%
+    mutate(total_patients_hospitalized_confirmed_covid_coverage = rowSums(hhs_covid[, c("total_adult_patients_hospitalized_confirmed_covid_coverage", "total_pediatric_patients_hospitalized_confirmed_covid_coverage")])) %>%
+    mutate(icu_bed_utilization = rowSums(hhs_covid[, c("adult_icu_bed_utilization", "staffed_pediatric_icu_bed_occupancy")])) %>%
+    mutate(icu_bed_utilization_coverage = rowSums(hhs_covid[, c("adult_icu_bed_utilization_coverage", "staffed_pediatric_icu_bed_occupancy_coverage")])) %>%
+    dplyr::select(state, date,
+                previous_day_admission_covid_confirmed,
+                previous_day_admission_covid_confirmed_coverage,
+                deaths_covid,
+                deaths_covid_coverage,
+                staffed_icu_patients_confirmed_covid,
+                staffed_icu_patients_confirmed_covid_coverage,
+                total_patients_hospitalized_confirmed_covid,
+                total_patients_hospitalized_confirmed_covid_coverage,
+                inpatient_beds_used_covid,
+                inpatient_beds_used_covid_coverage,
+                percent_of_inpatients_with_covid,
+                icu_bed_utilization,
+                icu_bed_utilization_coverage) %>%
+    mutate(date=as.Date(as.character(date), "%Y/%m/%d")-1, ## data is for previous day covid admission
+           week=epiweek(date),
+           year=epiyear(date),
+           datew=MMWRweek2Date(year, week, 7)) %>%
+    arrange(state, date) %>%
+    group_by(state, datew) %>%  ##summarize daily data into weekly counts
+  summarise(across(c(previous_day_admission_covid_confirmed:deaths_covid_coverage),
+                   ~sum(.x, na.rm = TRUE)),
+            across(c(staffed_icu_patients_confirmed_covid:icu_bed_utilization_coverage),
+                   ~mean(.x, na.rm = TRUE))) %>% ungroup()
+
+  
+hhs_covid_natl <- hhs_covid %>%
+    group_by(datew) %>%
+  summarise(across(c(previous_day_admission_covid_confirmed:icu_bed_utilization_coverage),
+                   ~sum(.x, na.rm = TRUE))) %>%
+  ungroup() %>% mutate(state="US")
+
+
+us_pop <- read.csv("covid_data/locations.csv") %>% rename(region = location_name)
+us_lat_long <- readxl::read_excel("covid_data/StatePopCenters.xls") %>% select(-c("Population"))%>% rename(region = Name) %>% add_row(FIPS = 57, region = "US", Latitude = 37.0902, Longitude = 95.7129) %>% left_join(us_pop, by="region") %>% dplyr::select(region,abbreviation, population,Latitude, Longitude)
+
+
+hhs_covid %<>% 
+  bind_rows(hhs_covid_natl) %>% filter(state !="AS") %>%
+  mutate(state=factor(state, levels=c("US", state.abb))) %>%
+  left_join(us_lat_long, by=c("state"="abbreviation")) %>%
+  mutate(covid_hosp_rate = previous_day_admission_covid_confirmed/population*100000,
+         covid_death_rate= deaths_covid/population*100000)
+
+hhs_covid_natl2 <-hhs_covid %>% filter(state=="US")
+
+colors <- c("Hospitalization per 100,000" = "blue", 
+            "Deaths per 1,000,000"="red")
+
+r=max(hhs_covid_natl2$covid_hosp_rate,na.rm=T)/max(hhs_covid_natl2$previous_day_admission_covid_confirmed_coverage) # ratio of max covid admissions to max no reporting hospitals for plot
+options(scipen = 999)
+
+g0 <- ggplot(subset(hhs_covid, state=="US" & datew<max(datew)-7)) +  #excluding most recent week as typically incomplete
+  geom_line(aes(datew, covid_hosp_rate, color="Hospitalization per 100,000"), lwd=0.8) +
+  geom_line(aes(datew, covid_death_rate*10, color="Deaths per 1,000,000"), lwd=0.8 ) +
+  labs(x = "Date",
+       y = "Weekly hospitalizations or deaths per 100,000",
+       color = "Legend")+
+  scale_color_manual(values = colors) +
+  scale_x_date(date_breaks = "1 month", date_labels = "%b-%Y") +
+  theme(legend.position = "top") + ggtitle("HHS dataset") + 
+  annotate('rect', xmin=as.Date("2022-04-01"), xmax=as.Date("2022-10-01"), ymin =0 , ymax=100, alpha=.4, fill='grey') + 
+ scale_y_continuous(trans = "log10", breaks = scales::trans_breaks("log10", function(x) 10^x), labels = scales::comma) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+g0
+
+ggsave("graphs/HHS_covid_national_combined.png", g0, width=12, height=9)
+
+# Extract the year
+lubridate::month(hhs_covid$datew)
+lubridate::year(hhs_covid$datew)
+
+hhs_covid2 <- hhs_covid %>% 
+  mutate(year=lubridate::year(hhs_covid$datew),
+         month=lubridate::month(hhs_covid$datew),
+         month_name=month.name[lubridate::month(hhs_covid$datew)])
+
+# g0_test <- ggplot(subset(hhs_covid2, state=="US" & datew<max(datew)-7)) + geom_line(aes(month, covid_hosp_rate, color="Hospitalization per 100,000"), lwd=0.8) + geom_line(aes(month, total_adult_patients_hospitalized_confirmed_covid), lwd=0.8, color="blue" ) + labs(x = "Month", y = "Weekly covid admission rates", color = "Legend")+ ylim(0,150000)+ facet_wrap(~year, scale="free", ncol=5)+ scale_color_manual(values = colors) + theme(legend.position = "top") + ggtitle("HHS dataset") + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+colors <- c("Hospitalization" = "blue", "Deaths" = "red")
+
+g00 <- ggplot(subset(hhs_covid, state!="US")) + 
+  geom_line(aes(datew, covid_hosp_rate, color="Hospitalization"), lwd=0.8) +
+  geom_line(aes(datew, covid_death_rate, color="Deaths"), lwd=0.8 ) +
+  labs(x = "Date",
+       y = "Weekly hospitalizations or deaths per 100,000",
+       color = "Legend")+
+  scale_color_manual(values = colors) +
+  ylim(0,80) + 
+  facet_wrap(~state, scale="free", ncol=10)+
+  theme(legend.position = "top") +ggtitle("HHS Covid dataset") + 
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+g00
+
+
+ggsave("graphs/HHS_covid_state.png", g00, width=15, height=12)
+
+
+g01 <- ggplot(subset(hhs_covid, state!="US")) + 
+  geom_line(aes(datew, covid_death_rate, color="Deaths"), lwd=0.8 ) +
+  labs(x = "Date",
+       y = "Weekly hospitalizations",
+       color = "Legend")+
+  scale_color_manual(values = colors) +
+  ylim(0,80) + 
+  facet_wrap(~state, scale="free", ncol=10)+
+  theme(legend.position = "top") +ggtitle("HHS Covid dataset") + 
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+g01
+
+ggsave("graphs/HHS_covid_deaths_state.png", g01, width=15, height=12)
+
+
+
+colors1 <- c("Hospitals reporting" = "green")
+g02 <- ggplot(subset(hhs_covid, state!="US")) + 
+  geom_line(aes(datew, previous_day_admission_adult_covid_confirmed_coverage, color="Hospitals reporting"), lwd=0.8 ) +
+  labs(x = "Date",
+       y = "Weekly no. hospitals reporting flu admissions",
+       color = "Legend")+
+  scale_color_manual(values = colors1) +
+  ylim(0,1750) +
+  facet_wrap(~state, scale="free", ncol=10)+
+  theme(legend.position = "top") +ggtitle("HHS dataset -- covid reporting") + 
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+g02
+
+ggsave("graphs/HHS_covid_coverage_state.png", g02, width=15, height=12)
+
+```
+
+```{r linear regression (Spetember 2020)}
+hhs_covid <- read.csv("covid_data/COVID-19_Reported_Patient_Impact_and_Hospital_Capacity_by_State_Timeseries__RAW__20240603.csv") 
+
+hhs_covid %<>% dplyr::select(state, date,    
+                previous_day_admission_adult_covid_confirmed,
+                previous_day_admission_pediatric_covid_confirmed,
+                previous_day_admission_adult_covid_confirmed_coverage,
+                previous_day_admission_pediatric_covid_confirmed_coverage,
+                deaths_covid,
+                deaths_covid_coverage,
+                staffed_icu_adult_patients_confirmed_covid,
+                staffed_icu_pediatric_patients_confirmed_covid,
+                staffed_icu_adult_patients_confirmed_covid_coverage,
+                staffed_icu_pediatric_patients_confirmed_covid_coverage,
+                total_adult_patients_hospitalized_confirmed_covid,
+                total_pediatric_patients_hospitalized_confirmed_covid,
+                total_adult_patients_hospitalized_confirmed_covid_coverage,
+                total_pediatric_patients_hospitalized_confirmed_covid_coverage,
+                inpatient_beds_used_covid,
+                inpatient_beds_used_covid_coverage,
+                percent_of_inpatients_with_covid,
+                adult_icu_bed_utilization,
+                staffed_pediatric_icu_bed_occupancy,
+                adult_icu_bed_utilization_coverage,
+                staffed_pediatric_icu_bed_occupancy_coverage
+                ) %>%
+    mutate(covid = rowSums(hhs_covid[, c("previous_day_admission_adult_covid_confirmed", "previous_day_admission_pediatric_covid_confirmed")], na.rm = T)) %>%
+  relocate(covid, .after = "previous_day_admission_pediatric_covid_confirmed") %>%
+    #mutate(previous_day_admission_covid_confirmed_coverage = rowSums(hhs_covid[, c("previous_day_admission_adult_covid_confirmed_coverage", "previous_day_admission_pediatric_covid_confirmed_coverage")])) %>%
+    #mutate(staffed_icu_patients_confirmed_covid = rowSums(hhs_covid[, c("staffed_icu_adult_patients_confirmed_covid", "staffed_icu_pediatric_patients_confirmed_covid")])) %>%
+    #mutate(staffed_icu_patients_confirmed_covid_coverage = rowSums(hhs_covid[, c("staffed_icu_adult_patients_confirmed_covid_coverage", "staffed_icu_pediatric_patients_confirmed_covid_coverage")])) %>%
+    #mutate(total_patients_hospitalized_confirmed_covid = rowSums(hhs_covid[, c("total_adult_patients_hospitalized_confirmed_covid", "total_pediatric_patients_hospitalized_confirmed_covid")])) %>%
+    #mutate(total_patients_hospitalized_confirmed_covid_coverage = rowSums(hhs_covid[, c("total_adult_patients_hospitalized_confirmed_covid_coverage", "total_pediatric_patients_hospitalized_confirmed_covid_coverage")])) %>%
+    #mutate(icu_bed_utilization = rowSums(hhs_covid[, c("adult_icu_bed_utilization", "staffed_pediatric_icu_bed_occupancy")])) %>%
+    #mutate(icu_bed_utilization_coverage = rowSums(hhs_covid[, c("adult_icu_bed_utilization_coverage", "staffed_pediatric_icu_bed_occupancy_coverage")])) %>%
+    #dplyr::select(state, date,
+                #previous_day_admission_covid_confirmed,
+                #previous_day_admission_covid_confirmed_coverage,
+                #deaths_covid,
+                #deaths_covid_coverage,
+                #staffed_icu_patients_confirmed_covid,
+                #staffed_icu_patients_confirmed_covid_coverage,
+                #total_patients_hospitalized_confirmed_covid,
+                #total_patients_hospitalized_confirmed_covid_coverage,
+                #inpatient_beds_used_covid,
+                #inpatient_beds_used_covid_coverage,
+                #percent_of_inpatients_with_covid,
+                #icu_bed_utilization,
+                #icu_bed_utilization_coverage) %>%
+    mutate(date=as.Date(as.character(date), "%Y/%m/%d")-1, ## data is for previous day covid admission
+           week=epiweek(date),
+           year=epiyear(date),
+           datew=MMWRweek2Date(year, week, 7)) %>%
+    arrange(state, date) %>%
+    group_by(state, datew) %>%  ##summarize daily data into weekly counts
+  summarise(across(c(previous_day_admission_adult_covid_confirmed:deaths_covid_coverage),
+                   ~sum(.x, na.rm = TRUE)),
+            across(c(staffed_icu_adult_patients_confirmed_covid:adult_icu_bed_utilization_coverage),
+                   ~mean(.x, na.rm = TRUE))) %>% ungroup()
+
+  
+hhs_covid_natl <- hhs_covid %>%
+    group_by(datew) %>%
+  summarise(across(c(previous_day_admission_adult_covid_confirmed:adult_icu_bed_utilization_coverage),
+                   ~sum(.x, na.rm = TRUE))) %>%
+  ungroup() %>% mutate(state="US")
+
+
+us_pop <- read.csv("covid_data/locations.csv") %>% rename(region = location_name) %>% filter(region != "US")
+us_lat_long <- readxl::read_excel("covid_data/StatePopCenters.xls") %>% select(-c("Population"))%>% rename(region = Name)  %>% left_join(us_pop, by="region") %>% dplyr::select(abbreviation, region, population,Latitude, Longitude) %>% rename(state = abbreviation)
+
+
+hhs_covid %<>% left_join(us_lat_long, by = "state") %>%
+  mutate(covid_hosp_rate = covid/population*100000,
+         covid_death_rate= deaths_covid/population*100000)
+
+
+data <- hhs_covid %>% 
+  mutate(Surveillance = "Year Round") %>% 
+  subset(datew> "2020-09-01") %>% 
+  mutate(Year = format(datew,"%Y")) %>% 
+  mutate(Month = format(datew,"%m")) %>% 
+  mutate(weekyear = lubridate::week(ymd(datew)))%>% 
+  group_by(state) %>% arrange(datew) %>% 
+  mutate(weeknum = row_number()) %>% 
+  mutate(covid_rollav = rollmean(covid, k=3, fill = NA, align = c("center"))) %>% 
+  ungroup() %>% filter(state != "US") %>% 
+  arrange(region) %>% transform(state_id=as.numeric(factor(region))) %>% 
+  group_by(Year,state) %>% 
+  mutate(sumcovid = sum(covid)) %>% 
+  mutate(sumcovid.ra = sum(covid_rollav)) %>% 
+  ungroup() %>% 
+  filter(!(state %in% c("VI", "PR", "AS"))) #disease data 
+
+
+StateDesc <- us_lat_long %>% mutate(Surveillance = "Year Round") %>% mutate(state_id = 1:n()) %>% filter(state != "US")# geographic info
+
+head(data)
+
+attach(data)
+
+nwks <- table(state_id)[1]
+nstates <- dim(table(state_id)) 
+
+datee <- seq(from=2020.09,by=1/52.17,length.out=nwks) ##running index for time
+
+matrixdata = matrix(NA, nrow=nwks, ncol=nstates) 
+# matrix to store the wkly data; time as rows;locations as columns
+matrixseas = matrix(NA, nrow=53, ncol=nstates) 
+ # matrix to store average % of disease in each week (=average seasonal signature);
+
+matrixdata.ra = matrix(NA, nrow=nwks, ncol=nstates) 
+# matrix to store the wkly data; time as rows;locations as columns
+matrixseas.ra = matrix(NA, nrow=53, ncol=nstates) 
+ # matrix to store average % of disease in each week (=average seasonal signature);
+
+for (i in 1:nstates){
+subdata = data[which(state_id == i),]
+subdata$tomodel=sqrt(subdata$covid/subdata$sumcovid) #standardization by annual no. of samples positives for flu
+   matrixdata[,i]=   subdata$tomodel
+   matrixseas[,i]= aggregate(subdata$tomodel, list(subdata$weekyear), median)$x
+}
+
+for (i in 1:nstates){
+subdata.ra = data[which(state_id == i),]
+subdata.ra$tomodel=sqrt(subdata.ra$covid_rollav/subdata.ra$sumcovid.ra) #standardization by annual no. of samples positives for flu
+   matrixdata.ra[,i]= subdata.ra$tomodel
+   matrixseas.ra[,i]= aggregate(subdata.ra$tomodel, list(subdata.ra$weekyear), median)$x
+}
+
+
+StateDesc$flag=ifelse(StateDesc$Surveillance =='Year Round', '*', '') ## flags a subset of locations with yr-round data
+idx=sort(StateDesc$Latitude,index.return=T)$ix
+
+# Terms for time trends
+t_1<-datee
+t_2<-t_1^2
+
+#Harmonic terms
+cos1<-cos(2*t_1*3.14159265/1)
+sin1<-sin(2*t_1*3.14159265/1)
+cos2<-cos(2*t_1*3.14159265/0.5)
+sin2<-sin(2*t_1*3.14159265/0.5)
+
+### Creating vectors to store seasonal estimates for 1-yr periodicities
+phase1 = rep(NA, length.out=nstates)
+err.ph1 = rep(NA, length.out=nstates)
+amp1 = rep(NA, length.out=nstates)
+rel.amp1 = rep(NA, length.out=nstates)
+rel.amp.emp=rep(NA, length.out=nstates)
+err.amp1 = rep(NA, length.out=nstates)
+
+# Creating vectors to store seasonal estimates for 6-mo periodicities
+phase2 = rep(NA, length.out=nstates)
+err.ph2 = rep(NA, length.out=nstates)
+amp2 = rep(NA, length.out=nstates)
+rel.amp2 = rep(NA, length.out=nstates)
+err.amp2 = rep(NA, length.out=nstates)
+years = rep(0, length.out=nstates)
+
+### Creating vectors to store seasonal estimates for 1-yr periodicities - using RA
+phase1.ra = rep(NA, length.out=nstates)
+err.ph1.ra = rep(NA, length.out=nstates)
+amp1.ra = rep(NA, length.out=nstates)
+rel.amp1.ra = rep(NA, length.out=nstates)
+rel.amp.emp.ra=rep(NA, length.out=nstates)
+err.amp1.ra = rep(NA, length.out=nstates)
+
+# Creating vectors to store seasonal estimates for 6-mo periodicities - using RA
+phase2.ra = rep(NA, length.out=nstates)
+err.ph2.ra = rep(NA, length.out=nstates)
+amp2.ra = rep(NA, length.out=nstates)
+rel.amp2.ra = rep(NA, length.out=nstates)
+err.amp2.ra = rep(NA, length.out=nstates)
+years.ra = rep(0, length.out=nstates)
+
+states.list=names(table(data$state))
+layout(matrix(1:4,2,2))
+par(mar=c(2,2,2,2), xpd = FALSE)
+
+for (i in 1:nstates){
+data.tomodel= matrixdata[,i] 
+data.tomodel.ex= data.tomodel 
+    model.covid = glm(data.tomodel.ex ~ t_1 + cos1 + sin1 + cos2 + sin2,  family= gaussian(link ="identity"),na.action=na.exclude)
+fitted = predict.glm(model.covid, subdata,type='response') ##prediction of model baseline, deals with NAs
+    c1 = model.covid$coefficients[2]
+    s1 = model.covid$coefficients[3]
+    c2 = model.covid$coefficients[4]
+    s2 = model.covid$coefficients[5]
+    x = summary(model.covid)
+    c1.err = x$coefficients[2,2]
+    s1.err = x$coefficients[3,2]
+c2.err = x$coefficients[4,2]
+    s2.err = x$coefficients[5,2]
+phase1[i] = atan2(s1,c1) ## estimate of peak time for annual component
+err.ph1[i] = abs( sqrt( (s1^2*c1.err^2 + c1^2*s1.err^2)/(c1^2 + s1^2) ) ) ##error 
+amp1[i] = sqrt(s1^2 + c1^2) ## estimate of amplitude for annual component mean
+rel.amp1[i] = amp1[i] / mean(fitted) ## better to express amplitude as relative to the 
+err.amp1[i] = ((s1*s1.err)/sqrt(s1^2 + c1^2))^2 + ((c1*c1.err)/sqrt(s1^2 + c1^2))^2 ##error
+## same for semi-annual component
+    phase2[i] = atan2(s2,c2)
+    err.ph2[i] = abs( sqrt( (s2^2*c2.err^2 + c2^2*s2.err^2)/(c2^2 + s2^2) ) )
+    amp2[i] = sqrt(s2^2 + c2^2)
+    rel.amp2[i] =  amp2[i] / mean(subdata$tomodel,na.rm=T)
+    err.amp2[i] = ((s2*s2.err)/sqrt(s2^2 + c2^2))^2 + ((c2*c2.err)/sqrt(s2^2 + c2^2))^2
+
+# FOR ROLLING AVERAGE
+data.tomodel.ra= matrixdata.ra[,i] 
+data.tomodel.ex.ra= data.tomodel.ra
+    model.covid.ra = glm(data.tomodel.ex.ra ~ t_1 + cos1 + sin1 + cos2 + sin2,  family= gaussian(link ="identity"),na.action=na.exclude)
+fitted.ra = predict.glm(model.covid.ra, subdata.ra,type='response') ##prediction of model baseline, deals with NAs
+    c1.ra = model.covid.ra$coefficients[2]
+    s1.ra = model.covid.ra$coefficients[3]
+    c2.ra = model.covid.ra$coefficients[4]
+    s2.ra = model.covid.ra$coefficients[5]
+    x.ra = summary(model.covid.ra)
+    c1.err.ra = x$coefficients[2,2]
+    s1.err.ra = x$coefficients[3,2]
+    c2.err.ra = x$coefficients[4,2]
+    s2.err.ra = x$coefficients[5,2]
+phase1.ra[i] = atan2(s1,c1) ## estimate of peak time for annual component
+err.ph1.ra[i] = abs( sqrt( (s1^2*c1.err^2 + c1^2*s1.err^2)/(c1^2 + s1^2) ) ) ##error 
+amp1.ra[i] = sqrt(s1^2 + c1^2) ## estimate of amplitude for annual component mean
+rel.amp1.ra[i] = amp1.ra[i] / mean(fitted.ra) ## better to express amplitude as relative to the 
+err.amp1.ra[i] = ((s1*s1.err)/sqrt(s1^2 + c1^2))^2 + ((c1*c1.err)/sqrt(s1^2 + c1^2))^2 ##error
+## same for semi-annual component
+    phase2.ra[i] = atan2(s2,c2)
+    err.ph2.ra[i] = abs( sqrt( (s2^2*c2.err^2 + c2^2*s2.err^2)/(c2^2 + s2^2) ) )
+    amp2.ra[i] = sqrt(s2^2 + c2^2)
+    rel.amp2.ra[i] =  amp2.ra[i] / mean(subdata.ra$tomodel,na.rm=T)
+    err.amp2.ra[i] = ((s2*s2.err)/sqrt(s2^2 + c2^2))^2 + ((c2*c2.err)/sqrt(s2^2 + c2^2))^2
+
+    
+##plots observed data and model
+plot(datee, data.tomodel, type='l')
+title(states.list[i]) 
+lines(datee, as.vector(fitted), col='red') #predicted model
+lines(datee, data.tomodel.ra, col='green') #rolling average results
+}
+
+dev.off()
+
+sumcovid=aggregate(covid,by=list(state, state_id),sum,na.rm=T)
+## note that we transform the phase estimate from radians to year (=time) below using 1 year = 2*Pi (=full cycle of a 1 year harmonics)
+
+all.seas=data.frame(sumcovid, matrix(c((phase1*52.17)/(2*3.14159265), err.ph1, amp1,rel.amp1,rel.amp.emp,err.amp1,(phase2*52.17)/(2*3.14159265), err.ph2, amp2, rel.amp2, err.amp2), nstates, 11))
+names(all.seas) = c('state','state_id','Sum.Covid','phase.ann', 'err.ph.ann','amp.ann','rel.amp.ann', 'emp.amp.ann','err.amp.ann','phase.sem', 'err.ph.sem', 'amp.sem', 'rel.amp.sem', 'err.amp.sem')
+
+all.seas$ratio=all.seas$amp.sem/(all.seas$amp.ann+all.seas$amp.sem) ## the ratio of semi-annual to (annual+semi-annual) amplitudes is a good indication of the strength of a 6-mo cycle
+
+all=merge(StateDesc, all.seas,by.x="state_id",by.y="state_id") %>% select(-c('flag', 'Surveillance'))## merge with geo data
+
+#Rolling average
+
+sumcovid.ra=aggregate(covid_rollav,by=list(state, state_id),sum,na.rm=T)
+## note that we transform the phase estimate from radians to year (=time) below using 1 year = 2*Pi (=full cycle of a 1 year harmonics)
+
+all.seas.ra=data.frame(sumcovid.ra, matrix(c((phase1.ra*52.17)/(2*3.14159265), err.ph1, amp1,rel.amp1,rel.amp.emp,err.amp1,(phase2.ra*52.17)/(2*3.14159265), err.ph2, amp2, rel.amp2, err.amp2), nstates, 11))
+names(all.seas.ra) = c('state','state_id','Sum.Covid','phase.ann', 'err.ph.ann','amp.ann','rel.amp.ann', 'emp.amp.ann','err.amp.ann','phase.sem', 'err.ph.sem', 'amp.sem', 'rel.amp.sem', 'err.amp.sem')
+
+#all.seas.ra$ratio=all.seas.ra$amp.sem.ra/(all.seas.ra$amp.ann.ra+all.seas.ra$amp.sem.ra) ## the ratio of semi-annual to (annual+semi-annual) amplitudes is a good indication of the strength of a 6-mo cycle
+
+all.ra=merge(StateDesc, all.seas.ra,by.x="state_id",by.y="state_id") %>% select(-c('flag', 'Surveillance'))## merge with geo data
+```
+
+```{r seasonality plots (September 2020)}
+jpeg("graphs/March20_lat.jpeg", width= 3.25,height= 3.25, units= "in",res= 500,pointsize = 4) 
+par(mfrow=c(1,3), mar= c(5, 5, 5, 5))
+## panel 1: amplitude of annual cycle as a function of latitude
+plot(all$rel.amp.ann,all$Latitude,cex=(all$Sum.Covid/100000),lwd=1,col="black",xlab='Relative amplitude',ylab='Latitude',cex.lab=1.4,cex.axis=1.2)
+title('Annual amplitude',cex.main=1.5)
+reg=lm(all$rel.amp.ann~all$Latitude)
+reg2=lm(all$rel.amp.ann~all$Latitude,weight=all$Sum.Covid)
+abline(a=-reg$coefficients[1]/reg$coefficients[2], b=1/reg$coefficients[2],col="purple",lty=2,lwd=1)
+abline(a=-reg2$coefficients[1]/reg2$coefficients[2], b=1/reg2$coefficients[2],col="purple",lty=1,lwd=1)
+
+## panel 2: : importance of 6-mo cycle as a function of latitude
+plot(all$ratio,all$Latitude, cex=(all$Sum.Covid/100000),lwd=1,col="black",xlab='Ratio semi-annual component',ylab='Latitude',cex.lab=1.4,cex.axis=1.2)
+reg=lm(all$ratio~all$Latitude)
+abline(a=-reg$coefficients[1]/reg$coefficients[2], b=1/reg$coefficients[2],col="purple",lty=2,lwd=1)
+reg2=lm(all$ratio~all$Latitude,weight=all$Sum.Covid)
+abline(a=-reg2$coefficients[1]/reg2$coefficients[2], b=1/reg2$coefficients[2],col="purple",lty=1,lwd=1)
+title('Importance of \n semi-annual cycle',cex.main=1.5)
+
+## panel 3: peak timing as a function of latitude
+plot(all$phase.ann,all$Latitude, cex=(all$Sum.Covid/100000),lwd=1,col="black",xlab='Phase (wks;0=Sept-5)',ylab='Latitude',cex.lab=1.4,cex.axis=1.2)
+reg=lm(all$phase.ann~all$Latitude)
+abline(a=-reg$coefficients[1]/reg$coefficients[2], b=1/reg$coefficients[2],col="purple",lty=2,lwd=1)
+reg2=lm(all$phase.ann~all$Latitude,weight=all$Sum.Covid)
+abline(a=-reg2$coefficients[1]/reg2$coefficients[2], b=1/reg2$coefficients[2],col="purple",lty=1,lwd=1)
+title('Peak timing',cex.main=1.5)
+dev.off()
+
+jpeg("graphs/March20_long.jpeg", width= 3.25,height= 3.25, units= "in",res= 500,pointsize = 4) 
+par(mfrow=c(1,3), mar= c(5, 5, 5, 5))
+## panel 4: amplitude of annual cycle as a function of longitude
+plot(all$rel.amp.ann,all$Longitude,cex=(all$Sum.Covid/100000),lwd=1,col="black",xlab='Relative amplitude',ylab='Longitude',cex.lab=1.4,cex.axis=1.2)
+reg=lm(all$rel.amp.ann~all$Longitude)
+reg2=lm(all$rel.amp.ann~all$Longitude,weight=all$Sum.Covid)
+abline(a=-reg$coefficients[1]/reg$coefficients[2], b=1/reg$coefficients[2],col="purple",lty=2,lwd=1)
+abline(a=-reg2$coefficients[1]/reg2$coefficients[2], b=1/reg2$coefficients[2],col="purple",lty=1,lwd=1)
+title('Annual amplitude',cex.main=1.5)
+
+## panel 5: : importance of 6-mo cycle as a function of longitude
+plot(all$ratio,all$Longitude, cex=(all$Sum.Covid/100000),lwd=1,col="black",xlab='Ratio semi-annual component',ylab='Longitude',cex.lab=1.4,cex.axis=1.2)
+reg=lm(all$ratio~all$Longitude)
+abline(a=-reg$coefficients[1]/reg$coefficients[2], b=1/reg$coefficients[2],col="purple",lty=2,lwd=1)
+reg2=lm(all$ratio~all$Longitude,weight=all$Sum.Covid)
+abline(a=-reg2$coefficients[1]/reg2$coefficients[2], b=1/reg2$coefficients[2],col="purple",lty=
+1,lwd=1)
+title('Importance of \n semi-annual cycle',cex.main=1.5)
+
+## panel 6: peak timing as a function of longitude
+plot(all$phase.ann,all$Longitude, cex=(all$Sum.Covid/100000),lwd=1,col="black",xlab='Phase (wks;0=Sept-5)',ylab='Longitude',cex.lab=1.4,cex.axis=1.2)
+reg=lm(all$phase.ann~all$Longitude)
+abline(a=-reg$coefficients[1]/reg$coefficients[2], b=1/reg$coefficients[2],col="purple",lty=2,lwd=1)
+reg2=lm(all$phase.ann~all$Longitude,weight=all$Sum.Covid)
+abline(a=-reg2$coefficients[1]/reg2$coefficients[2], b=1/reg2$coefficients[2],col="purple",lty=1,lwd=1)
+title('Peak timing',cex.main=1.5)
+dev.off()
+
+jpeg("graphs/March20_pop.jpeg", width= 3.25,height= 3.25, units= "in",res= 500,pointsize = 4) 
+par(mfrow=c(1,3), mar= c(5, 5, 5, 5))
+## panel 7: amplitude of annual cycle as a function of population
+plot(all$rel.amp.ann,all$population,cex=(all$Sum.Covid/100000),lwd=1,col="black",xlab='Relative amplitude',ylab='Population Size',cex.lab=1.4,cex.axis=1.2)
+reg=lm(all$rel.amp.ann~all$population)
+reg2=lm(all$rel.amp.ann~all$population,weight=all$Sum.Covid)
+abline(a=-reg$coefficients[1]/reg$coefficients[2], b=1/reg$coefficients[2],col="purple",lty=2,lwd=1)
+abline(a=-reg2$coefficients[1]/reg2$coefficients[2], b=1/reg2$coefficients[2],col="purple",lty=1,lwd=1)
+title('Annual amplitude',cex.main=1.5)
+
+## panel 8: : importance of 6-mo cycle as a function of population
+plot(all$ratio,all$population, cex=(all$Sum.Covid/100000),lwd=1,col="black",xlab='Ratio semi-annual component',ylab='Population Size',cex.lab=1.4,cex.axis=1.2)
+reg=lm(all$ratio~all$population)
+abline(a=-reg$coefficients[1]/reg$coefficients[2], b=1/reg$coefficients[2],col="purple",lty=2,lwd=1)
+reg2=lm(all$ratio~all$population,weight=all$Sum.Covid)
+abline(a=-reg2$coefficients[1]/reg2$coefficients[2], b=1/reg2$coefficients[2],col="purple",lty=
+1,lwd=1)
+title('Importance of \n semi-annual cycle',cex.main=1.5)
+
+## panel 9: peak timing as a function of population
+plot(all$phase.ann,all$population, cex=(all$Sum.Covid/100000),lwd=1,col="black",xlab='Phase (wks;0=Sept-5)',ylab='Population Size',cex.lab=1.4,cex.axis=1.2)
+reg=lm(all$phase.ann~all$population)
+abline(a=-reg$coefficients[1]/reg$coefficients[2], b=1/reg$coefficients[2],col="purple",lty=2,lwd=1)
+reg2=lm(all$phase.ann~all$population,weight=all$Sum.Covid)
+abline(a=-reg2$coefficients[1]/reg2$coefficients[2], b=1/reg2$coefficients[2],col="purple",lty=1,lwd=1)
+title('Peak timing',cex.main=1.5)
+dev.off()
+```
+
+
+```{r linear regression (April 2022)}
+data <- hhs_covid %>% 
+  mutate(Surveillance = "Year Round") %>% 
+  subset(datew> "2022-04-01") %>% 
+  mutate(Year = format(datew,"%Y")) %>% 
+  mutate(Month = format(datew,"%m")) %>% 
+  mutate(weekyear = lubridate::week(ymd(datew)))%>% 
+  group_by(state) %>% 
+  arrange(datew) %>% 
+  mutate(weeknum = row_number()) %>% 
+  mutate(covid_rollav = rollmean(covid, k=3, fill = NA, align = c("center"))) %>% 
+  ungroup() %>% 
+  filter(state != "US") %>% 
+  arrange(region) %>% 
+  transform(state_id=as.numeric(factor(region))) %>% 
+  group_by(Year,state) %>% 
+  mutate(sumcovid = sum(covid)) %>% 
+  mutate(sumcovid.ra = sum(covid_rollav)) %>% 
+  ungroup() %>% 
+  filter(!(state %in% c("VI", "PR", "AS"))) #disease data 
+
+head(data)
+
+attach(data)
+
+nwks=table(state_id)[1]
+nstates=dim(table(state_id))
+
+datee <- seq(from=2022.04,by=1/52.17,length.out=nwks) ##running index for time
+
+matrixdata = matrix(NA, nrow=nwks, ncol=nstates) 
+# matrix to store the wkly data; time as rows;locations as columns
+matrixseas = matrix(NA, nrow=53, ncol=nstates) 
+ # matrix to store average % of disease in each week (=average seasonal signature);
+
+matrixdata.ra = matrix(NA, nrow=nwks, ncol=nstates) 
+# matrix to store the wkly data; time as rows;locations as columns
+matrixseas.ra = matrix(NA, nrow=53, ncol=nstates) 
+ # matrix to store average % of disease in each week (=average seasonal signature);
+
+for (i in 1:nstates){
+subdata = data[which(state_id == i),]
+subdata$tomodel=sqrt(subdata$covid/subdata$sumcovid) #standardization by annual no. of samples positives for flu
+   matrixdata[,i]=subdata$tomodel
+   matrixseas[,i]=aggregate(subdata$tomodel, list(subdata$weekyear), median)$x
+}
+
+for (i in 1:nstates){
+subdata.ra = data[which(state_id == i),]
+subdata.ra$tomodel=sqrt(subdata.ra$covid_rollav/subdata.ra$sumcovid.ra) #standardization by annual no. of samples positives for flu
+   matrixdata.ra[,i]= subdata.ra$tomodel
+   matrixseas.ra[,i]= aggregate(subdata.ra$tomodel, list(subdata.ra$weekyear), median)$x
+}
+
+StateDesc$flag=ifelse(StateDesc$Surveillance=='Year-round', '*', '') ## flags a subset of locations with yr-round data
+idx=sort(StateDesc$Latitude,index.return=T)$ix
+
+# Terms for time trends
+t_1<-datee
+t_2<-t_1^2
+
+#Harmonic terms
+cos1<-cos(2*t_1*3.14159265/1)
+sin1<-sin(2*t_1*3.14159265/1)
+cos2<-cos(2*t_1*3.14159265/0.5)
+sin2<-sin(2*t_1*3.14159265/0.5)
+
+### Creating vectors to store seasonal estimates for 1-yr periodicities
+phase1 = rep(NA, length.out=nstates)
+err.ph1 = rep(NA, length.out=nstates)
+amp1 = rep(NA, length.out=nstates)
+rel.amp1 = rep(NA, length.out=nstates)
+rel.amp.emp=rep(NA, length.out=nstates)
+err.amp1 = rep(NA, length.out=nstates)
+
+# Creating vectors to store seasonal estimates for 6-mo periodicities
+phase2 = rep(NA, length.out=nstates)
+err.ph2 = rep(NA, length.out=nstates)
+amp2 = rep(NA, length.out=nstates)
+rel.amp2 = rep(NA, length.out=nstates)
+err.amp2 = rep(NA, length.out=nstates)
+years = rep(0, length.out=nstates)
+
+### Creating vectors to store seasonal estimates for 1-yr periodicities - using RA
+phase1.ra = rep(NA, length.out=nstates)
+err.ph1.ra = rep(NA, length.out=nstates)
+amp1.ra = rep(NA, length.out=nstates)
+rel.amp1.ra = rep(NA, length.out=nstates)
+rel.amp.emp.ra=rep(NA, length.out=nstates)
+err.amp1.ra = rep(NA, length.out=nstates)
+
+# Creating vectors to store seasonal estimates for 6-mo periodicities - using RA
+phase2.ra = rep(NA, length.out=nstates)
+err.ph2.ra = rep(NA, length.out=nstates)
+amp2.ra = rep(NA, length.out=nstates)
+rel.amp2.ra = rep(NA, length.out=nstates)
+err.amp2.ra = rep(NA, length.out=nstates)
+years.ra = rep(0, length.out=nstates)
+
+states.list=names(table(data$state))
+region.list=names(table(data$region))
+layout(matrix(1:10,5,2))
+par(mar=c(2,2,2,2))
+
+for (i in 1:nstates){
+data.tomodel= matrixdata[,i] 
+data.tomodel.ex= data.tomodel 
+    model.covid = glm(data.tomodel.ex ~ t_1 + cos1 + sin1 + cos2 + sin2,  family= gaussian(link ="identity"),na.action=na.exclude)
+fitted = predict.glm(model.covid, subdata,type='response') ##prediction of model baseline, deals with NAs
+    c1 = model.covid$coefficients[2]
+    s1 = model.covid$coefficients[3]
+    c2 = model.covid$coefficients[4]
+    s2 = model.covid$coefficients[5]
+    x = summary(model.covid)
+    c1.err = x$coefficients[2,2]
+    s1.err = x$coefficients[3,2]
+c2.err = x$coefficients[4,2]
+    s2.err = x$coefficients[5,2]
+phase1[i] = atan2(s1,c1) ## estimate of peak time for annual component
+err.ph1[i] = abs( sqrt( (s1^2*c1.err^2 + c1^2*s1.err^2)/(c1^2 + s1^2) ) ) ##error 
+amp1[i] = sqrt(s1^2 + c1^2) ## estimate of amplitude for annual component mean
+rel.amp1[i] = amp1[i] / mean(fitted) ## better to express amplitude as relative to the 
+err.amp1[i] = ((s1*s1.err)/sqrt(s1^2 + c1^2))^2 + ((c1*c1.err)/sqrt(s1^2 + c1^2))^2 ##error
+## same for semi-annual component
+    phase2[i] = atan2(s2,c2)
+    err.ph2[i] = abs( sqrt( (s2^2*c2.err^2 + c2^2*s2.err^2)/(c2^2 + s2^2) ) )
+    amp2[i] = sqrt(s2^2 + c2^2)
+    rel.amp2[i] =  amp2[i] / mean(subdata$tomodel,na.rm=T)
+    err.amp2[i] = ((s2*s2.err)/sqrt(s2^2 + c2^2))^2 + ((c2*c2.err)/sqrt(s2^2 + c2^2))^2
+
+# FOR ROLLING AVERAGE
+data.tomodel.ra= matrixdata.ra[,i] 
+data.tomodel.ex.ra= data.tomodel.ra
+    model.covid.ra = glm(data.tomodel.ex.ra ~ t_1 + cos1 + sin1 + cos2 + sin2,  family= gaussian(link ="identity"),na.action=na.exclude)
+fitted.ra = predict.glm(model.covid.ra, subdata.ra,type='response') ##prediction of model baseline, deals with NAs
+    c1.ra = model.covid.ra$coefficients[2]
+    s1.ra = model.covid.ra$coefficients[3]
+    c2.ra = model.covid.ra$coefficients[4]
+    s2.ra = model.covid.ra$coefficients[5]
+    x.ra = summary(model.covid.ra)
+    c1.err.ra = x$coefficients[2,2]
+    s1.err.ra = x$coefficients[3,2]
+    c2.err.ra = x$coefficients[4,2]
+    s2.err.ra = x$coefficients[5,2]
+phase1.ra[i] = atan2(s1,c1) ## estimate of peak time for annual component
+err.ph1.ra[i] = abs( sqrt( (s1^2*c1.err^2 + c1^2*s1.err^2)/(c1^2 + s1^2) ) ) ##error 
+amp1.ra[i] = sqrt(s1^2 + c1^2) ## estimate of amplitude for annual component mean
+rel.amp1.ra[i] = amp1.ra[i] / mean(fitted.ra) ## better to express amplitude as relative to the 
+err.amp1.ra[i] = ((s1*s1.err)/sqrt(s1^2 + c1^2))^2 + ((c1*c1.err)/sqrt(s1^2 + c1^2))^2 ##error
+## same for semi-annual component
+    phase2.ra[i] = atan2(s2,c2)
+    err.ph2.ra[i] = abs( sqrt( (s2^2*c2.err^2 + c2^2*s2.err^2)/(c2^2 + s2^2) ) )
+    amp2.ra[i] = sqrt(s2^2 + c2^2)
+    rel.amp2.ra[i] =  amp2.ra[i] / mean(subdata.ra$tomodel,na.rm=T)
+    err.amp2.ra[i] = ((s2*s2.err)/sqrt(s2^2 + c2^2))^2 + ((c2*c2.err)/sqrt(s2^2 + c2^2))^2
+    
+##plots observed data and model
+plot(datee, data.tomodel, type='l')
+title(region.list[i]) 
+lines(datee, as.vector(fitted), col='red') #predicted model
+lines(datee, data.tomodel.ra, col='green') #rolling average results
+}
+
+dev.off()
+
+sumcovid=aggregate(covid,by=list(state, state_id),sum,na.rm=T)
+## note that we transform the phase estimate from radians to year (=time) below using 1 year = 2*Pi (=full cycle of a 1 year harmonics)
+
+all.seas2=data.frame(sumcovid, matrix(c((phase1.ra*52.17)/(2*3.14159265), err.ph1, amp1,rel.amp1,rel.amp.emp,err.amp1,(phase2.ra*52.17)/(2*3.14159265), err.ph2, amp2, rel.amp2, err.amp2), nstates, 11))
+names(all.seas.ra) = c('state','state_id','Sum.Covid','phase.ann', 'err.ph.ann','amp.ann','rel.amp.ann', 'emp.amp.ann','err.amp.ann','phase.sem', 'err.ph.sem', 'amp.sem', 'rel.amp.sem', 'err.amp.sem')
+
+names(all.seas2) = c('state','state_id','Sum.Covid','phase.ann', 'err.ph.ann','amp.ann','rel.amp.ann', 'emp.amp.ann','err.amp.ann','phase.sem', 'err.ph.sem', 'amp.sem', 'rel.amp.sem', 'err.amp.sem')
+
+all.seas2$ratio=all.seas2$amp.sem/(all.seas2$amp.ann+all.seas2$amp.sem) ## the ratio of semi-annual to (annual+semi-annual) amplitudes is a good indication of the strength of a 6-mo cycle
+
+all2=merge(StateDesc, all.seas2,by.x="state_id",by.y="state_id") %>% select(-c('flag', 'Surveillance'))## merge with geo data
+
+#Rolling average
+
+sumcovid.ra=aggregate(covid_rollav,by=list(state, state_id),sum,na.rm=T)
+## note that we transform the phase estimate from radians to year (=time) below using 1 year = 2*Pi (=full cycle of a 1 year harmonics)
+
+all.seas2.ra=data.frame(sumcovid.ra, matrix(c((phase1.ra*52.17)/(2*3.14159265), err.ph1, amp1,rel.amp1,rel.amp.emp,err.amp1,(phase2.ra*52.17)/(2*3.14159265), err.ph2, amp2, rel.amp2, err.amp2), nstates, 11))
+names(all.seas2.ra) = c('state','state_id','Sum.Covid','phase.ann', 'err.ph.ann','amp.ann','rel.amp.ann', 'emp.amp.ann','err.amp.ann','phase.sem', 'err.ph.sem', 'amp.sem', 'rel.amp.sem', 'err.amp.sem')
+
+#all2.seas.ra$ratio=all.seas.ra$amp.sem.ra/(all.seas.ra$amp.ann.ra+all.seas.ra$amp.sem.ra) ## the ratio of semi-annual to (annual+semi-annual) amplitudes is a good indication of the strength of a 6-mo cycle
+
+all2.ra=merge(StateDesc, all.seas2.ra,by.x="state_id",by.y="state_id") %>% select(-c('flag', 'Surveillance'))## merge with geo data
+```
+
+```{r seasonality plots (April 2022)}
+jpeg("graphs/April22_lat.jpeg", width= 3.25,height= 3.25, units= "in",res= 500,pointsize = 4) 
+par(mfrow=c(1,3), mar= c(5, 5, 5, 5))
+## panel 1: amplitude of annual cycle as a function of latitude
+plot(all2$rel.amp.ann,all2$Latitude,cex=(all2$Sum.Covid/100000),lwd=1,col="black",xlab='Relative amplitude',ylab='Latitude',cex.lab=1.4,cex.axis=1.2)
+title('Annual amplitude',cex.main=1.5)
+reg=lm(all2$rel.amp.ann~all2$Latitude)
+reg2=lm(all2$rel.amp.ann~all2$Latitude,weight=all2$Sum.Covid)
+abline(a=-reg$coefficients[1]/reg$coefficients[2], b=1/reg$coefficients[2],col="purple",lty=2,lwd=1)
+abline(a=-reg2$coefficients[1]/reg2$coefficients[2], b=1/reg2$coefficients[2],col="purple",lty=1,lwd=1)
+
+## panel 2: : importance of 6-mo cycle as a function of latitude
+plot(all2$ratio,all2$Latitude, cex=(all2$Sum.Covid/100000),lwd=1,col="black",xlab='Ratio semi-annual component',ylab='Latitude',cex.lab=1.4,cex.axis=1.2)
+reg=lm(all2$ratio~all$Latitude)
+abline(a=-reg$coefficients[1]/reg$coefficients[2], b=1/reg$coefficients[2],col="purple",lty=2,lwd=1)
+reg2=lm(all$ratio~all2$Latitude,weight=all2$Sum.Covid)
+abline(a=-reg2$coefficients[1]/reg2$coefficients[2], b=1/reg2$coefficients[2],col="purple",lty=1,lwd=1)
+title('Importance of \n semi-annual cycle',cex.main=1.5)
+
+## panel 3: peak timing as a function of latitude
+plot(all2$phase.ann,all$Latitude, cex=(all2$Sum.Covid/100000),lwd=1,col="black",xlab='Phase (wks;0=Apr-1)',ylab='Latitude',cex.lab=1.4,cex.axis=1.2)
+reg=lm(all2$phase.ann~all$Latitude)
+abline(a=-reg$coefficients[1]/reg$coefficients[2], b=1/reg$coefficients[2],col="purple",lty=2,lwd=1)
+reg2=lm(all2$phase.ann~all2$Latitude,weight=all$Sum.Covid)
+abline(a=-reg2$coefficients[1]/reg2$coefficients[2], b=1/reg2$coefficients[2],col="purple",lty=1,lwd=1)
+title('Peak timing',cex.main=1.5)
+dev.off()
+
+jpeg("graphs/April22_long.jpeg", width= 3.25,height= 3.25, units= "in",res= 500,pointsize = 4) 
+par(mfrow=c(1,3), mar= c(5, 5, 5, 5))
+## panel 4: amplitude of annual cycle as a function of longitude
+plot(all2$rel.amp.ann,all2$Longitude,cex=(all2$Sum.Covid/100000),lwd=1,col="black",xlab='Relative amplitude',ylab='Longitude',cex.lab=1.4,cex.axis=1.2)
+reg=lm(all2$rel.amp.ann~all$Longitude)
+reg2=lm(all2$rel.amp.ann~all2$Longitude,weight=all2$Sum.Covid)
+abline(a=-reg$coefficients[1]/reg$coefficients[2], b=1/reg$coefficients[2],col="purple",lty=2,lwd=1)
+abline(a=-reg2$coefficients[1]/reg2$coefficients[2], b=1/reg2$coefficients[2],col="purple",lty=1,lwd=1)
+title('Annual amplitude',cex.main=1.5)
+
+## panel 5: : importance of 6-mo cycle as a function of longitude
+plot(all2$ratio,all$Longitude, cex=(all2$Sum.Covid/100000),lwd=1,col="black",xlab='Ratio semi-annual component',ylab='Longitude',cex.lab=1.4,cex.axis=1.2)
+reg=lm(all2$ratio~all$Longitude)
+abline(a=-reg$coefficients[1]/reg$coefficients[2], b=1/reg$coefficients[2],col="purple",lty=2,lwd=1)
+reg2=lm(all2$ratio~all2$Longitude,weight=all2$Sum.Covid)
+abline(a=-reg2$coefficients[1]/reg2$coefficients[2], b=1/reg2$coefficients[2],col="purple",lty=
+1,lwd=1)
+title('Importance of \n semi-annual cycle',cex.main=1.5)
+
+## panel 6: peak timing as a function of longitude
+plot(all2$phase.ann,all2$Longitude, cex=(all2$Sum.Covid/100000),lwd=1,col="black",xlab='Phase (wks;0=Apr-1)',ylab='Longitude',cex.lab=1.4,cex.axis=1.2)
+reg=lm(all2$phase.ann~all2$Longitude)
+abline(a=-reg$coefficients[1]/reg$coefficients[2], b=1/reg$coefficients[2],col="purple",lty=2,lwd=1)
+reg2=lm(all2$phase.ann~all2$Longitude,weight=all2$Sum.Covid)
+abline(a=-reg2$coefficients[1]/reg2$coefficients[2], b=1/reg2$coefficients[2],col="purple",lty=1,lwd=1)
+title('Peak timing',cex.main=1.5)
+dev.off()
+
+jpeg("graphs/April22_pop.jpeg", width= 3.25,height= 3.25, units= "in",res= 500,pointsize = 4) 
+par(mfrow=c(1,3), mar= c(5, 5, 5, 5))
+## panel 7: amplitude of annual cycle as a function of population
+plot(all2$rel.amp.ann,all2$population,cex=(all2$Sum.Covid/100000),lwd=1,col="black",xlab='Relative amplitude',ylab='Population Size',cex.lab=1.4,cex.axis=1.2)
+reg=lm(all2$rel.amp.ann~all2$population)
+reg2=lm(all2$rel.amp.ann~all2$population,weight=all2$Sum.Covid)
+abline(a=-reg$coefficients[1]/reg$coefficients[2], b=1/reg$coefficients[2],col="purple",lty=2,lwd=1)
+abline(a=-reg2$coefficients[1]/reg2$coefficients[2], b=1/reg2$coefficients[2],col="purple",lty=1,lwd=1)
+text(1.2,20,"R2=0.54-0.60; P<0.0001",cex=1.1)
+title('Annual amplitude',cex.main=1.5)
+
+## panel 8: : importance of 6-mo cycle as a function of population
+plot(all2$ratio,all2$population, cex=(all2$Sum.Covid/100000),lwd=1,col="black",xlab='Ratio semi-annual component',ylab='Population Size',cex.lab=1.4,cex.axis=1.2)
+reg=lm(all2$ratio~all2$population)
+abline(a=-reg$coefficients[1]/reg$coefficients[2], b=1/reg$coefficients[2],col="purple",lty=2,lwd=1)
+reg2=lm(all2$ratio~all2$population,weight=all2$Sum.Covid)
+abline(a=-reg2$coefficients[1]/reg2$coefficients[2], b=1/reg2$coefficients[2],col="purple",lty=
+1,lwd=1)
+title('Importance of \n semi-annual cycle',cex.main=1.5)
+
+## panel 9: peak timing as a function of population
+plot(all2$phase.ann,all2$population, cex=(all2$Sum.Covid/100000),lwd=1,col="black",xlab='Phase (wks;0=Apr-1)',ylab='Population Size',cex.lab=1.4,cex.axis=1.2)
+reg=lm(all2$phase.ann~all2$population)
+abline(a=-reg$coefficients[1]/reg$coefficients[2], b=1/reg$coefficients[2],col="purple",lty=2,lwd=1)
+reg2=lm(all2$phase.ann~all2$population,weight=all2$Sum.Covid)
+abline(a=-reg2$coefficients[1]/reg2$coefficients[2], b=1/reg2$coefficients[2],col="purple",lty=1,lwd=1)
+title('Peak timing',cex.main=1.5)
+dev.off()
+```
