@@ -17,6 +17,14 @@ library(MMWRweek)
 library(cdcfluview)
 library(scales)
 library(zoo)
+
+lmp <- function (modelobject) {
+    if (class(modelobject) != "lm") stop("Not an object of class 'lm' ")
+    f <- summary(modelobject)$fstatistic
+    p <- pf(f[1],f[2],f[3],lower.tail=F)
+    attributes(p) <- NULL
+    return(p)
+}
 ```
 
 ```{r timeseries_plots}
@@ -465,6 +473,9 @@ reg=lm(all$rel.amp.ann~all$Latitude)
 reg2=lm(all$rel.amp.ann~all$Latitude,weight=all$Sum.Covid)
 abline(a=-reg$coefficients[1]/reg$coefficients[2], b=1/reg$coefficients[2],col="purple",lty=2,lwd=1)
 abline(a=-reg2$coefficients[1]/reg2$coefficients[2], b=1/reg2$coefficients[2],col="purple",lty=1,lwd=1)
+pval <- lmp(reg) %>% signif(., 5)
+test <- ifelse(pval<0.05, paste0(pval, " *"), pval)
+mtext(paste0("p=", test), side = 3, line = 0.5, col = "red", cex = 0.9)
 
 ## panel 2: : importance of 6-mo cycle as a function of latitude
 plot(all$ratio,all$Latitude, cex=(all$Sum.Covid/100000),lwd=1,col="black",xlab='Ratio semi-annual component',ylab='Latitude',cex.lab=1.4,cex.axis=1.2)
@@ -472,15 +483,21 @@ reg=lm(all$ratio~all$Latitude)
 abline(a=-reg$coefficients[1]/reg$coefficients[2], b=1/reg$coefficients[2],col="purple",lty=2,lwd=1)
 reg2=lm(all$ratio~all$Latitude,weight=all$Sum.Covid)
 abline(a=-reg2$coefficients[1]/reg2$coefficients[2], b=1/reg2$coefficients[2],col="purple",lty=1,lwd=1)
-title('Importance of \n semi-annual cycle',cex.main=1.5)
+title('Importance of \n semi-annual cycle',cex.main=1.5, line = 2)
+pval <- lmp(reg) %>% signif(., 5)
+test <- ifelse(pval<0.05, paste0(pval, " *"), pval)
+mtext(paste0("p=", test), side = 3, line = 0.5, col = "red", cex = 0.9)
 
 ## panel 3: peak timing as a function of latitude
-plot(all$phase.ann,all$Latitude, cex=(all$Sum.Covid/100000),lwd=1,col="black",xlab='Phase (wks;0=Sept-5)',ylab='Latitude',cex.lab=1.4,cex.axis=1.2)
+plot(all$phase.ann,all$Latitude, cex=(all$Sum.Covid/100000),lwd=1,col="black",xlab='Phase (wks;0=Sept-5)',ylab='Latitude',cex.lab=1.4,cex.axis=1.2, xlim = c(-15,-5))
 reg=lm(all$phase.ann~all$Latitude)
 abline(a=-reg$coefficients[1]/reg$coefficients[2], b=1/reg$coefficients[2],col="purple",lty=2,lwd=1)
 reg2=lm(all$phase.ann~all$Latitude,weight=all$Sum.Covid)
 abline(a=-reg2$coefficients[1]/reg2$coefficients[2], b=1/reg2$coefficients[2],col="purple",lty=1,lwd=1)
 title('Peak timing',cex.main=1.5)
+pval <- lmp(reg) %>% signif(., 5)
+test <- ifelse(pval<0.05, paste0(pval, " *"), pval)
+mtext(paste0("p=", test), side = 3, line = 0.5, col = "red", cex = 0.9)
 
 ## panel 4: amplitude of annual cycle as a function of longitude
 plot(all$rel.amp.ann,all$Longitude,cex=(all$Sum.Covid/100000),lwd=1,col="black",xlab='Relative amplitude',ylab='Longitude',cex.lab=1.4,cex.axis=1.2)
@@ -489,6 +506,9 @@ reg2=lm(all$rel.amp.ann~all$Longitude,weight=all$Sum.Covid)
 abline(a=-reg$coefficients[1]/reg$coefficients[2], b=1/reg$coefficients[2],col="purple",lty=2,lwd=1)
 abline(a=-reg2$coefficients[1]/reg2$coefficients[2], b=1/reg2$coefficients[2],col="purple",lty=1,lwd=1)
 title('Annual amplitude',cex.main=1.5)
+pval <- lmp(reg) %>% signif(., 5)
+test <- ifelse(pval<0.05, paste0(pval, " *"), pval)
+mtext(paste0("p=", test), side = 3, line = 0.5, col = "red", cex = 0.9)
 
 ## panel 5: : importance of 6-mo cycle as a function of longitude
 plot(all$ratio,all$Longitude, cex=(all$Sum.Covid/100000),lwd=1,col="black",xlab='Ratio semi-annual component',ylab='Longitude',cex.lab=1.4,cex.axis=1.2)
@@ -497,16 +517,21 @@ abline(a=-reg$coefficients[1]/reg$coefficients[2], b=1/reg$coefficients[2],col="
 reg2=lm(all$ratio~all$Longitude,weight=all$Sum.Covid)
 abline(a=-reg2$coefficients[1]/reg2$coefficients[2], b=1/reg2$coefficients[2],col="purple",lty=
 1,lwd=1)
-title('Importance of \n semi-annual cycle',cex.main=1.5)
+title('Importance of \n semi-annual cycle',cex.main=1.5, line = 2)
+pval <- lmp(reg) %>% signif(., 5)
+test <- ifelse(pval<0.05, paste0(pval, " *"), pval)
+mtext(paste0("p=", test), side = 3, line = 0.5, col = "red", cex = 0.9)
 
 ## panel 6: peak timing as a function of longitude
-plot(all$phase.ann,all$Longitude, cex=(all$Sum.Covid/100000),lwd=1,col="black",xlab='Phase (wks;0=Sept-5)',ylab='Longitude',cex.lab=1.4,cex.axis=1.2)
+plot(all$phase.ann,all$Longitude, cex=(all$Sum.Covid/100000),lwd=1,col="black",xlab='Phase (wks;0=Sept-5)',ylab='Longitude',cex.lab=1.4,cex.axis=1.2, xlim = c(-15,-5))
 reg=lm(all$phase.ann~all$Longitude)
 abline(a=-reg$coefficients[1]/reg$coefficients[2], b=1/reg$coefficients[2],col="purple",lty=2,lwd=1)
 reg2=lm(all$phase.ann~all$Longitude,weight=all$Sum.Covid)
 abline(a=-reg2$coefficients[1]/reg2$coefficients[2], b=1/reg2$coefficients[2],col="purple",lty=1,lwd=1)
 title('Peak timing',cex.main=1.5)
-
+pval <- lmp(reg) %>% signif(., 5)
+test <- ifelse(pval<0.05, paste0(pval, " *"), pval)
+mtext(paste0("p=", test), side = 3, line = 0.5, col = "red", cex = 0.9)
 
 ## panel 7: amplitude of annual cycle as a function of population
 plot(all$rel.amp.ann,log(all$population),cex=(all$Sum.Covid/100000),lwd=1,col="black",xlab='Relative amplitude',ylab='Population Size',cex.lab=1.4,cex.axis=1.2)
@@ -515,6 +540,9 @@ reg2=lm(all$rel.amp.ann~all$population,weight=all$Sum.Covid)
 abline(a=-reg$coefficients[1]/reg$coefficients[2], b=1/reg$coefficients[2],col="purple",lty=2,lwd=1)
 abline(a=-reg2$coefficients[1]/reg2$coefficients[2], b=1/reg2$coefficients[2],col="purple",lty=1,lwd=1)
 title('Annual amplitude',cex.main=1.5)
+pval <- lmp(reg) %>% signif(., 5)
+test <- ifelse(pval<0.05, paste0(pval, " *"), pval)
+mtext(paste0("p=", test), side = 3, line = 0.5, col = "red", cex = 0.9)
 
 ## panel 8: : importance of 6-mo cycle as a function of population
 plot(all$ratio,log(all$population), cex=(all$Sum.Covid/100000),lwd=1,col="black",xlab='Ratio semi-annual component',ylab='Population Size',cex.lab=1.4,cex.axis=1.2)
@@ -523,16 +551,31 @@ abline(a=-reg$coefficients[1]/reg$coefficients[2], b=1/reg$coefficients[2],col="
 reg2=lm(all$ratio~all$population,weight=all$Sum.Covid)
 abline(a=-reg2$coefficients[1]/reg2$coefficients[2], b=1/reg2$coefficients[2],col="purple",lty=
 1,lwd=1)
-title('Importance of \n semi-annual cycle',cex.main=1.5)
+title('Importance of \n semi-annual cycle',cex.main=1.5, line = 2)
+pval <- lmp(reg) %>% signif(., 5)
+test <- ifelse(pval<0.05, paste0(pval, " *"), pval)
+mtext(paste0("p=", test), side = 3, line = 0.5, col = "red", cex = 0.9)
 
 ## panel 9: peak timing as a function of population
-plot(all$phase.ann,log(all$population), cex=(all$Sum.Covid/100000),lwd=1,col="black",xlab='Phase (wks;0=Sept-5)',ylab='Population Size',cex.lab=1.4,cex.axis=1.2)
+plot(all$phase.ann,log(all$population), cex=(all$Sum.Covid/100000),lwd=1,col="black",xlab='Phase (wks;0=Sept-5)',ylab='Population Size',cex.lab=1.4,cex.axis=1.2, xlim = c(-15,-5))
 reg=lm(all$phase.ann~all$population)
 abline(a=-reg$coefficients[1]/reg$coefficients[2], b=1/reg$coefficients[2],col="purple",lty=2,lwd=1)
 reg2=lm(all$phase.ann~all$population,weight=all$Sum.Covid)
 abline(a=-reg2$coefficients[1]/reg2$coefficients[2], b=1/reg2$coefficients[2],col="purple",lty=1,lwd=1)
 title('Peak timing',cex.main=1.5)
+pval <- lmp(reg) %>% signif(., 5)
+test <- ifelse(pval<0.05, paste0(pval, " *"), pval)
+mtext(paste0("p=", test), side = 3, line = 0.5, col = "red", cex = 0.9)
 dev.off()
+
+
+#p-values
+#amp20_reg <- lm(all$rel.amp.ann~all$Latitude + all$Longitude + all$population)
+#summary(amp20_reg)
+#semi20_reg <- lm(all$ratio~all$Latitude + all$Longitude + all$population)
+#summary(semi20_reg)
+#phase20_reg <- lm(all$phase.ann~all$Latitude + all$Longitude + all$population)
+#summary(phase20_reg)
 ```
 
 
@@ -736,6 +779,9 @@ reg=lm(all2$rel.amp.ann~all2$Latitude)
 reg2=lm(all2$rel.amp.ann~all2$Latitude,weight=all2$Sum.Covid)
 abline(a=-reg$coefficients[1]/reg$coefficients[2], b=1/reg$coefficients[2],col="purple",lty=2,lwd=1)
 abline(a=-reg2$coefficients[1]/reg2$coefficients[2], b=1/reg2$coefficients[2],col="purple",lty=1,lwd=1)
+pval <- lmp(reg) %>% signif(., 5)
+test <- ifelse(pval<0.05, paste0(pval, " *"), pval)
+mtext(paste0("p=", test), side = 3, line = 0.5, col = "red", cex = 0.9)
 
 ## panel 2: : importance of 6-mo cycle as a function of latitude
 plot(all2$ratio,all2$Latitude, cex=(all2$Sum.Covid/100000),lwd=1,col="black",xlab='Ratio semi-annual component',ylab='Latitude',cex.lab=1.4,cex.axis=1.2)
@@ -743,7 +789,10 @@ reg=lm(all2$ratio~all$Latitude)
 abline(a=-reg$coefficients[1]/reg$coefficients[2], b=1/reg$coefficients[2],col="purple",lty=2,lwd=1)
 reg2=lm(all$ratio~all2$Latitude,weight=all2$Sum.Covid)
 abline(a=-reg2$coefficients[1]/reg2$coefficients[2], b=1/reg2$coefficients[2],col="purple",lty=1,lwd=1)
-title('Importance of \n semi-annual cycle',cex.main=1.5)
+title('Importance of \n semi-annual cycle',cex.main=1.5, line = 2)
+pval <- lmp(reg) %>% signif(., 5)
+test <- ifelse(pval<0.05, paste0(pval, " *"), pval)
+mtext(paste0("p=", test), side = 3, line = 0.5, col = "red", cex = 0.9)
 
 ## panel 3: peak timing as a function of latitude
 plot(all2$phase.ann,all$Latitude, cex=(all2$Sum.Covid/100000),lwd=1,col="black",xlab='Phase (wks;0=Apr-1)',ylab='Latitude',cex.lab=1.4,cex.axis=1.2)
@@ -752,6 +801,9 @@ abline(a=-reg$coefficients[1]/reg$coefficients[2], b=1/reg$coefficients[2],col="
 reg2=lm(all2$phase.ann~all2$Latitude,weight=all$Sum.Covid)
 abline(a=-reg2$coefficients[1]/reg2$coefficients[2], b=1/reg2$coefficients[2],col="purple",lty=1,lwd=1)
 title('Peak timing',cex.main=1.5)
+pval <- lmp(reg) %>% signif(., 5)
+test <- ifelse(pval<0.05, paste0(pval, " *"), pval)
+mtext(paste0("p=", test), side = 3, line = 0.5, col = "red", cex = 0.9)
 
 ## panel 4: amplitude of annual cycle as a function of longitude
 plot(all2$rel.amp.ann,all2$Longitude,cex=(all2$Sum.Covid/100000),lwd=1,col="black",xlab='Relative amplitude',ylab='Longitude',cex.lab=1.4,cex.axis=1.2)
@@ -760,6 +812,9 @@ reg2=lm(all2$rel.amp.ann~all2$Longitude,weight=all2$Sum.Covid)
 abline(a=-reg$coefficients[1]/reg$coefficients[2], b=1/reg$coefficients[2],col="purple",lty=2,lwd=1)
 abline(a=-reg2$coefficients[1]/reg2$coefficients[2], b=1/reg2$coefficients[2],col="purple",lty=1,lwd=1)
 title('Annual amplitude',cex.main=1.5)
+pval <- lmp(reg) %>% signif(., 5)
+test <- ifelse(pval<0.05, paste0(pval, " *"), pval)
+mtext(paste0("p=", test), side = 3, line = 0.5, col = "red", cex = 0.9)
 
 ## panel 5: : importance of 6-mo cycle as a function of longitude
 plot(all2$ratio,all$Longitude, cex=(all2$Sum.Covid/100000),lwd=1,col="black",xlab='Ratio semi-annual component',ylab='Longitude',cex.lab=1.4,cex.axis=1.2)
@@ -768,7 +823,10 @@ abline(a=-reg$coefficients[1]/reg$coefficients[2], b=1/reg$coefficients[2],col="
 reg2=lm(all2$ratio~all2$Longitude,weight=all2$Sum.Covid)
 abline(a=-reg2$coefficients[1]/reg2$coefficients[2], b=1/reg2$coefficients[2],col="purple",lty=
 1,lwd=1)
-title('Importance of \n semi-annual cycle',cex.main=1.5)
+title('Importance of \n semi-annual cycle',cex.main=1.5, line = 2)
+pval <- lmp(reg) %>% signif(., 5)
+test <- ifelse(pval<0.05, paste0(pval, " *"), pval)
+mtext(paste0("p=", test), side = 3, line = 0.5, col = "red", cex = 0.9)
 
 ## panel 6: peak timing as a function of longitude
 plot(all2$phase.ann,all2$Longitude, cex=(all2$Sum.Covid/100000),lwd=1,col="black",xlab='Phase (wks;0=Apr-1)',ylab='Longitude',cex.lab=1.4,cex.axis=1.2)
@@ -777,6 +835,9 @@ abline(a=-reg$coefficients[1]/reg$coefficients[2], b=1/reg$coefficients[2],col="
 reg2=lm(all2$phase.ann~all2$Longitude,weight=all2$Sum.Covid)
 abline(a=-reg2$coefficients[1]/reg2$coefficients[2], b=1/reg2$coefficients[2],col="purple",lty=1,lwd=1)
 title('Peak timing',cex.main=1.5)
+pval <- lmp(reg) %>% signif(., 5)
+test <- ifelse(pval<0.05, paste0(pval, " *"), pval)
+mtext(paste0("p=", test), side = 3, line = 0.5, col = "red", cex = 0.9)
 
 ## panel 7: amplitude of annual cycle as a function of population
 plot(all2$rel.amp.ann,log(all2$population),cex=(all2$Sum.Covid/100000),lwd=1,col="black",xlab='Relative amplitude',ylab='Population Size',cex.lab=1.4,cex.axis=1.2)
@@ -786,6 +847,9 @@ abline(a=-reg$coefficients[1]/reg$coefficients[2], b=1/reg$coefficients[2],col="
 abline(a=-reg2$coefficients[1]/reg2$coefficients[2], b=1/reg2$coefficients[2],col="purple",lty=1,lwd=1)
 text(1.2,20,"R2=0.54-0.60; P<0.0001",cex=1.1)
 title('Annual amplitude',cex.main=1.5)
+pval <- lmp(reg) %>% signif(., 5)
+test <- ifelse(pval<0.05, paste0(pval, " *"), pval)
+mtext(paste0("p=", test), side = 3, line = 0.5, col = "red", cex = 0.9)
 
 ## panel 8: : importance of 6-mo cycle as a function of population
 plot(all2$ratio,log(all2$population), cex=(all2$Sum.Covid/100000),lwd=1,col="black",xlab='Ratio semi-annual component',ylab='Population Size',cex.lab=1.4,cex.axis=1.2)
@@ -794,14 +858,28 @@ abline(a=-reg$coefficients[1]/reg$coefficients[2], b=1/reg$coefficients[2],col="
 reg2=lm(all2$ratio~all2$population,weight=all2$Sum.Covid)
 abline(a=-reg2$coefficients[1]/reg2$coefficients[2], b=1/reg2$coefficients[2],col="purple",lty=
 1,lwd=1)
-title('Importance of \n semi-annual cycle',cex.main=1.5)
+title('Importance of \n semi-annual cycle',cex.main=1.5, line = 2)
+pval <- lmp(reg) %>% signif(., 5)
+test <- ifelse(pval<0.05, paste0(pval, " *"), pval)
+mtext(paste0("p=", test), side = 3, line = 0.5, col = "red", cex = 0.9)
 
 ## panel 9: peak timing as a function of population
-plot(all2$phase.ann,log(all2$population), cex=(all2$Sum.Covid/100000),lwd=1,col="black",xlab='Phase (wks;0=Apr-1)',ylab='Population Size',cex.lab=1.4,cex.axis=1.2)
+plot(all2$phase.ann,log(all2$population), cex=(all2$Sum.Covid/100000),lwd=1,col="black",xlab='Phase (wks;0=Apr-1)',ylab='Population Size',cex.lab=1.4,cex.axis=1.2, xlim = c(0,15))
 reg=lm(all2$phase.ann~all2$population)
 abline(a=-reg$coefficients[1]/reg$coefficients[2], b=1/reg$coefficients[2],col="purple",lty=2,lwd=1)
 reg2=lm(all2$phase.ann~all2$population,weight=all2$Sum.Covid)
 abline(a=-reg2$coefficients[1]/reg2$coefficients[2], b=1/reg2$coefficients[2],col="purple",lty=1,lwd=1)
 title('Peak timing',cex.main=1.5)
+pval <- lmp(reg) %>% signif(., 5)
+test <- ifelse(pval<0.05, paste0(pval, " *"), pval)
+mtext(paste0("p=", test), side = 3, line = 0.5, col = "red", cex = 0.9)
 dev.off()
+
+#p-values
+#amp20_reg2 <- lm(all2$rel.amp.ann~all2$Latitude + all2$Longitude + all2$population)
+#summary(amp20_reg2)
+#semi20_reg2 <- lm(all2$ratio~all2$Latitude + all2$Longitude + all2$population)
+#summary(semi20_reg2)
+#phase20_reg2 <- lm(all2$phase.ann~all2$Latitude + all2$Longitude + all2$population)
+#summary(phase20_reg2)
 ```
